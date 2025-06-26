@@ -51,15 +51,23 @@ def cek_file_dan_konfirmasi(judul, ekstensi, tanggal):
             return None
     else:
         return nama_file
-    
+
 def cek_data_buat():
-    """Cek keberadaan file pengaturan.txt, buat jika belum ada"""
-    if not os.path.exists('pengaturan.txt'):
-        with open('pengaturan.txt', 'w') as f:
+    """Cek keberadaan file data/pengaturan.txt, buat jika belum ada"""
+    folder = 'data'
+    path_file = os.path.join(folder, 'pengaturan.txt')
+
+    # Pastikan folder data ada
+    if not os.path.exists(folder):
+        os.makedirs(folder)
+
+    # Cek dan buat file pengaturan.txt di dalam folder data
+    if not os.path.exists(path_file):
+        with open(path_file, 'w') as f:
             pass  # File kosong dibuat
-        print("File pengaturan belum ada...\n membuat file pengaturan ...")
+        print("File pengaturan belum ada...\nMembuat file pengaturan di folder data...")
     else:
-        print("File pengaturan sudah ada ....")
+        print("File pengaturan sudah ada di folder data....")
 
 def cek_isi():
     """Cek isi file pengaturan.txt terhadap modul pada requirements.txt dan update jika perlu"""
