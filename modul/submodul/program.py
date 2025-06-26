@@ -1,9 +1,16 @@
+import sys
+import os
+import time  
+from colorama import Fore, Style,init
 
+def folder():
+    NAMA_FOLDER = "VidioDownload"
+    os.makedirs(NAMA_FOLDER, exist_ok=True)
+    ILLEGAL_FILENAME_CHARS = r'<>:"/\|?*'
 
-init(autoreset=True)
-NAMA_FOLDER = "VidioDownload"
-os.makedirs(NAMA_FOLDER, exist_ok=True)
-ILLEGAL_FILENAME_CHARS = r'<>:"/\|?*'
+def hapus_layar():
+    """Membersihkan layar terminal di semua OS."""
+    os.system('cls' if os.name == 'nt' else 'clear')
 
 def bersihkan_nama_file(nama):
     for c in ILLEGAL_FILENAME_CHARS:
@@ -61,4 +68,5 @@ def get_video_resolutions(alamat):
         # Hilangkan duplikat dan urutkan dari tinggi ke rendah
         resolutions = sorted(list(set(resolutions)), reverse=True)
     return resolutions
+
 
