@@ -2,6 +2,7 @@ import subprocess
 import sys
 import os
 from modul.submodul.logo import *
+from modul.submodul.program import *
 
 try:
     from colorama import Fore, Style, init as colorama_init
@@ -92,3 +93,9 @@ def proses_update(branch="main"):
         print(f"\n{KUNING}[INFO] Proses dibatalkan oleh pengguna (Ctrl+C).{RESET}")
     except Exception as error:
         print(f"{MERAH}[ERROR] Terjadi kesalahan fatal: {error}{RESET}")
+      
+def pengaturan_data():
+    print("konfigurasi modulyang di butuhkan")
+    cek_data_buat()
+    cek_isi()
+
