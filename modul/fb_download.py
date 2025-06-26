@@ -1,7 +1,7 @@
 import os
 from yt_dlp import YoutubeDL
 from colorama import init, Fore, Style
-from unduh import *
+from modul.submodul.proses_download import *
 
 init(autoreset=True)
 NAMA_FOLDER = "VidioDownload"
@@ -32,4 +32,5 @@ def unduh_facebook(alamat, cookies_path=None, resolusi=None):
         print(Fore.GREEN + f"Download Facebook sukses. File: {hasil_output}")
     except Exception as e:
         print(Fore.RED + f"Download Facebook gagal! {e}")
+
 
