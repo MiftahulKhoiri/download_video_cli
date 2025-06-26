@@ -1,4 +1,7 @@
-
+import sys
+import os
+from colorama import Fore, Style, init
+from modul.submodul.program import *
 
 def print_progress_bar(percent, width=32, color=Fore.GREEN, msg=""):
     fill_len = int(width * percent // 100)
