@@ -43,3 +43,22 @@ def cek_file_dan_konfirmasi(judul, ekstensi, tanggal):
             return None
     else:
         return nama_file
+
+def get_video_resolutions(alamat):
+    """
+    Mengambil daftar resolusi video yang tersedia dari link YouTube.
+    """
+    with YoutubeDL({'quiet': True}) as ydl:
+        info = ydl.extract_info(alamat, download=False)
+        formats = info.get('formats', [])
+        resolutions = []
+        for fmt in formats:
+            if fmt.get('vcodec', 'none') != 'none' and fmt.get('acodec', 'none') == 'none':
+                height = fmt.get('height')
+                ext = fmt.get('ext')
+                if height:
+                    resolutions.append((height, ext))
+        # Hilangkan duplikat dan urutkan dari tinggi ke rendah
+        resolutions = sorted(list(set(resolutions)), reverse=True)
+    return resolutions
+
