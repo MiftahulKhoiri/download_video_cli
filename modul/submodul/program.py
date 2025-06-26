@@ -70,17 +70,21 @@ def cek_data_buat():
         print("File pengaturan sudah ada di folder data....")
 
 def cek_isi():
-    """Cek isi file pengaturan.txt terhadap modul pada requirements.txt dan update jika perlu"""
+    """Cek isi file data/pengaturan.txt terhadap modul pada data/requirements.txt dan update jika perlu"""
+    folder = 'data'
+    path_requirements = os.path.join(folder, 'requirements.txt')
+    path_pengaturan = os.path.join(folder, 'pengaturan.txt')
+
     try:
         # Dapatkan nama modul dari requirements.txt (tanpa versi)
-        with open('requirements.txt', 'r') as req_file:
+        with open(path_requirements, 'r') as req_file:
             required_moduls = set([
                 baris.strip().split('==')[0].split('>=')[0].split('<=')[0]
                 for baris in req_file if baris.strip() and not baris.startswith('#')
             ])
 
         # Dapatkan nama modul dari pengaturan.txt
-        with open('pengaturan.txt', 'r') as setting_file:
+        with open(path_pengaturan, 'r') as setting_file:
             current_moduls = set([
                 baris.strip() for baris in setting_file if baris.strip()
             ])
@@ -89,14 +93,14 @@ def cek_isi():
             modul_belumlengkap()
             buat_folder_vidio_download(nama_folder='VidioDownload')
             pasang_dan_cek_modul(
-                nama_file_requirements='requirements.txt',
-                file_pengaturan='pengaturan.txt'
+                nama_file_requirements=path_requirements,
+                file_pengaturan=path_pengaturan
             )
         else:
             modul_lengkap()
 
     except FileNotFoundError:
-        print("Error: requirements.txt tidak ditemukan.")
+        print("Error: requirements.txt atau pengaturan.txt tidak ditemukan di folder data.")
 
 def get_video_resolutions(alamat):
     """
