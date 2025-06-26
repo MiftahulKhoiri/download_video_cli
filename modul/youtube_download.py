@@ -2,7 +2,7 @@ import os
 import shutil
 from yt_dlp import YoutubeDL
 from colorama import init, Fore
-from unduh import *
+from modul.submodul.proses_download import *
 
 init(autoreset=True)
 NAMA_FOLDER = "VidioDownload"
@@ -116,4 +116,5 @@ def unduh_video_audio_terpisah(alamat, resolusi=None):
             hapus_file_sementara(temp_video, temp_audio)
         except Exception:
             pass
+
 
