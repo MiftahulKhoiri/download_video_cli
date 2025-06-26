@@ -2,7 +2,10 @@ import os
 import subprocess
 import sys
 
-def pasang_dan_cek_modul(nama_file_requirements='requirements.txt', file_pengaturan='pengaturan.txt'):
+def pasang_dan_cek_modul(
+    nama_file_requirements=os.path.join('data', 'requirements.txt'),
+    file_pengaturan=os.path.join('data', 'pengaturan.txt')
+):
     """
     Memasang dan mengecek modul-modul yang diperlukan sesuai daftar pada requirements.txt.
     Jika modul belum terpasang, maka akan diinstall otomatis.
