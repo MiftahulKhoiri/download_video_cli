@@ -6,7 +6,7 @@ from modul.submodul.logo import *
 from modul.submodul.modul_utama import pasang_dan_cek_modul
 
 def folder():
-    NAMA_FOLDER = "VidioDownload"
+    NAMA_FOLDER = 'VidioDownload'
     os.makedirs(NAMA_FOLDER, exist_ok=True)
     ILLEGAL_FILENAME_CHARS = r'<>:"/\|?*'
 
@@ -92,11 +92,10 @@ def cek_isi():
 
         if required_moduls != current_moduls:
             modul_belumlengkap()
-            buat_folder_vidio_download(nama_folder='VidioDownload')
             pasang_dan_cek_modul(
-                nama_file_requirements=path_requirements,
-                file_pengaturan=path_pengaturan
-            )
+    nama_file_requirements=os.path.join('data', 'requirements.txt'),
+    file_pengaturan=os.path.join('data', 'pengaturan.txt')
+)
         else:
             modul_lengkap()
 
@@ -120,5 +119,3 @@ def get_video_resolutions(alamat):
         # Hilangkan duplikat dan urutkan dari tinggi ke rendah
         resolutions = sorted(list(set(resolutions)), reverse=True)
     return resolutions
-
-
