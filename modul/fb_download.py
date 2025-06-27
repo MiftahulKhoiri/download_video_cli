@@ -1,4 +1,3 @@
-from time import datetime
 import os
 from yt_dlp import YoutubeDL
 from colorama import init, Fore, Style
