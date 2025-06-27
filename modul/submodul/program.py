@@ -25,6 +25,15 @@ def tanggal_hari_ini():
 def safe_filename(name):
     return "".join(c for c in name if c.isalnum() or c in " ._-").rstrip()
 
+def hapus_file_sementara(*file_paths):
+    for file_path in file_paths:
+        if os.path.exists(file_path):
+            try:
+                os.remove(file_path)
+            except Exception as e:
+                print(Fore.RED + f"Gagal menghapus file sementara {file_path}: {e}")
+
+
 def nama_file_unik(judul, ekstensi, tanggal):
     judul = safe_filename(judul)
     nama_dasar = f"{judul}_{tanggal}.{ekstensi}"
