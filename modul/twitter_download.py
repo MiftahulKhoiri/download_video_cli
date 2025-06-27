@@ -6,7 +6,7 @@ from modul.submodul.program import *
 
 ILLEGAL_FILENAME_CHARS = r'<>:"/\|?*'
 init(autoreset=True)
-NAMA_FOLDER = "VidioDownload"
+NAMA_FOLDER = "hasil_download"
 os.makedirs(NAMA_FOLDER, exist_ok=True)
 
 def unduh_twitter(alamat, cookies_path=None, resolusi=None):
