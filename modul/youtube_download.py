@@ -5,10 +5,10 @@ from colorama import init, Fore
 from modul.submodul.proses_download import *
 from modul.submodul.program import *
 
+ILLEGAL_FILENAME_CHARS = r'<>:"/\|?*' 
 init(autoreset=True)
 NAMA_FOLDER = "VidioDownload"
 os.makedirs(NAMA_FOLDER, exist_ok=True)
-ILLEGAL_FILENAME_CHARS = r'<>:"/\|?*' 
 
 def unduh_video_audio_terpisah(alamat, resolusi=None):
     temp_video = None
