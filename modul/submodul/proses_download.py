@@ -1,3 +1,4 @@
+import subprocess
 import sys
 import os
 from colorama import Fore, Style, init
