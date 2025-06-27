@@ -4,9 +4,10 @@ from colorama import init, Fore, Style
 from modul.submodul.proses_download import *
 from modul.submodul.program import *
 
+ILLEGAL_FILENAME_CHARS = r'<>:"/\|?*'
 init(autoreset=True)
 NAMA_FOLDER = "VidioDownload"
-#os.makedirs(NAMA_FOLDER, exist_ok=True)
+os.makedirs(NAMA_FOLDER, exist_ok=True)
 
 def unduh_twitter(alamat, cookies_path=None, resolusi=None):
     try:
