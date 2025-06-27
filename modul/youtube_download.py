@@ -1,9 +1,10 @@
-import time 
+
 import os
 import shutil
 from yt_dlp import YoutubeDL
 from colorama import init, Fore
 from modul.submodul.proses_download import *
+from modul.submodul.program import *
 
 init(autoreset=True)
 NAMA_FOLDER = "VidioDownload"
