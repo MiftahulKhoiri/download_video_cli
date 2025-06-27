@@ -1,6 +1,7 @@
 import subprocess
 import sys
 import os
+import re
 from colorama import Fore, Style, init
 from modul.submodul.program import *
 
