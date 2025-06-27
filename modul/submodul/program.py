@@ -1,15 +1,14 @@
 import sys
 import os
-import time
 import datetime
-from colorama import Fore, Style,init
+from colorama import Fore, Style, init
+from yt_dlp import YoutubeDL
 from modul.submodul.logo import *
 from modul.submodul.modul_utama import pasang_dan_cek_modul
 
-def folder():
-    NAMA_FOLDER = 'VidioDownload'
-    os.makedirs(NAMA_FOLDER, exist_ok=True)
-    ILLEGAL_FILENAME_CHARS = r'<>:"/\|?*'
+# Saran 1 & 4: Variabel global didefinisikan di sini
+NAMA_FOLDER = 'VidioDownload'
+ILLEGAL_FILENAME_CHARS = r'<>:"/\|?*'
 
 def hapus_layar():
     """Membersihkan layar terminal di semua OS."""
@@ -94,9 +93,9 @@ def cek_isi():
         if required_moduls != current_moduls:
             modul_belumlengkap()
             pasang_dan_cek_modul(
-    nama_file_requirements=os.path.join('data', 'requirements.txt'),
-    file_pengaturan=os.path.join('data', 'pengaturan.txt')
-)
+                nama_file_requirements=os.path.join('data', 'requirements.txt'),
+                file_pengaturan=os.path.join('data', 'pengaturan.txt')
+            )
         else:
             modul_lengkap()
 
