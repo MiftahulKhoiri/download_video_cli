@@ -1,3 +1,4 @@
+from modul.submodul.program import *
 import subprocess
 import sys
 import os
