@@ -161,8 +161,8 @@ def pengaturan_data():
     """Konfigurasi modul yang dibutuhkan (placeholder)."""
     print("konfigurasi modul yang dibutuhkan")
     # Panggil fungsi-fungsi setup lain di sini
-    # cek_data_buat()
-    # cek_isi()
+    cek_data_buat()
+    cek_isi()
 
 # --- MAIN ---
 
