@@ -100,13 +100,13 @@ def cek_isi():
             ])
 
         if required_moduls != current_moduls:
-            modul_belumlengkap()
+            logo_modul_belumlengkap()
             pasang_dan_cek_modul(
                 nama_file_requirements=os.path.join('data', 'requirements.txt'),
                 file_pengaturan=os.path.join('data', 'pengaturan.txt')
             )
         else:
-            modul_lengkap()
+            logo_modul_lengkap()
 
     except FileNotFoundError:
         print("Error: requirements.txt atau pengaturan.txt tidak ditemukan di folder data.")
