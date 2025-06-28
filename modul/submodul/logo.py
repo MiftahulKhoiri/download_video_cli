@@ -28,7 +28,7 @@ def tampilkan_salam():
     print(Fore.BLUE + "="*40 + Style.RESET_ALL)
 
 
-def modul_lengkap(detail="Semua modul telah terpasang dengan benar."):
+def logo_modul_lengkap(detail="Semua modul telah terpasang dengan benar."):
     """
     Menampilkan pesan bahwa modul sudah lengkap.
     """
@@ -37,7 +37,7 @@ def modul_lengkap(detail="Semua modul telah terpasang dengan benar."):
     print(Fore.GREEN + "       Tidak perlu melakukan pemasangan otomatis.")
     print(Style.RESET_ALL)
 
-def modul_belumlengkap(detail="Beberapa modul belum terpasang atau perlu pembaruan."):
+def logo_modul_belumlengkap(detail="Beberapa modul belum terpasang atau perlu pembaruan."):
     """
     Menampilkan pesan bahwa modul belum lengkap dan akan dilakukan update/install otomatis.
     """
