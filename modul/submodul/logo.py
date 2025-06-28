@@ -2,7 +2,7 @@ from colorama import Fore, Style, init
 
 init(autoreset=True)  # Agar warna otomatis reset setiap print
 
-def tampilkan_logo_utama():
+def tampilkan_logo_utama()
     logo = (
         f"{Fore.CYAN}╔═══════════════════════╗\n"
         f"{Fore.CYAN}║ {Fore.GREEN}Vidio Unduh{Fore.CYAN}           ║\n"
