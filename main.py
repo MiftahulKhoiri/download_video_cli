@@ -15,13 +15,13 @@ def main():
     while True:
         time.sleep(1)
         hapus_layar()
-        tampilkan_logo()
+        tampilkan_logo_utama()
         tampilkan_menu_utama()
         sumber = input(Fore.YELLOW + " Pilih sumber (1/2/3/0): ").strip()
         if sumber == "0":
             hapus_layar()
             time.sleep(1)
-            tampilkan_logo()
+            tampilkan_logo_utama()
             print(Fore.GREEN + "\nTerima kasih telah menggunakan program VidioUnduh!\n")
             break
         elif sumber in ["1", "2", "3"]:
