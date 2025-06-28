@@ -7,7 +7,7 @@ from modul.submodul.logo import *
 from modul.submodul.modul_utama import pasang_dan_cek_modul
 
 # Saran 1 & 4: Variabel global didefinisikan di sini
-NAMA_FOLDER = 'VidioDownload'
+NAMA_FOLDER = 'hasil_download'
 ILLEGAL_FILENAME_CHARS = r'<>:"/\|?*'
 
 def hapus_layar():
