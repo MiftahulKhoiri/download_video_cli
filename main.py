@@ -34,7 +34,7 @@ def main():
                 mode = input(Fore.YELLOW + " Pilihan (no:0/1/2) : ").strip().lower()
                 if mode == "0":
                     break
-                elif mode not in ["1", "2"]:
+                elif mode not in ["1", "2","3"]:
                     print(Fore.RED + "Pilihan tidak dikenali. Silakan ulangi.")
                     continue
                 daftar_url = []
