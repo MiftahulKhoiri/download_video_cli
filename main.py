@@ -1,7 +1,7 @@
 import os
 import time
 from colorama import Fore, Style, init
-from modul.submodul.program import tampilkan_hasil_download  # pastikan ini sudah diimport!
+from modul.submodul.program import *
 from modul.submodul.logo import *
 from modul.fb_download import unduh_facebook
 from modul.twitter_download import unduh_twitter
