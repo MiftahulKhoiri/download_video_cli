@@ -1,7 +1,7 @@
 import os
 import time
 from colorama import Fore, Style, init
-from modul.submodul.program import *
+from modul.submodul.program import tampilkan_hasil_download  # pastikan ini sudah diimport!
 from modul.submodul.logo import *
 from modul.fb_download import unduh_facebook
 from modul.twitter_download import unduh_twitter
@@ -16,6 +16,8 @@ def main():
         hapus_layar()
         tampilkan_logo_utama()
         tampilkan_menu_utama()
+        print(Fore.WHITE + " 4. Cek hasil download")
+        print(Fore.RED + " 0. Keluar")
         sumber = input(Fore.YELLOW + " Pilih sumber (1/2/3/4/0): ").strip()
         if sumber == "0":
             hapus_layar()
@@ -23,19 +25,18 @@ def main():
             tampilkan_logo_utama()
             print(Fore.GREEN + "\nTerima kasih telah menggunakan program VidioUnduh!\n")
             break
-        elif sumber in ["1", "2", "3", "4"]:
+        elif sumber == "4":
+            tampilkan_hasil_download()  # Panggil langsung, tidak masuk loop submenu unduhan
+            continue
+        elif sumber in ["1", "2", "3"]:
             while True:
                 print(Fore.MAGENTA + "\nPilih mode unduhan:")
                 print(Fore.BLUE + " 1. Unduh 1 video")
                 print(Fore.BLUE + " 2. Unduh banyak video")
-                print(Fore.WHITE + " 4. Cek hasil download")
                 print(Fore.RED + " 0. Kembali ke menu utama")
-                mode = input(Fore.YELLOW + " Pilihan (no:0/1/2/3) : ").strip().lower()
+                mode = input(Fore.YELLOW + " Pilihan (no:0/1/2) : ").strip().lower()
                 if mode == "0":
                     break
-                elif mode == "4":
-                    tampilkan_hasil_download()
-                    continue
                 elif mode not in ["1", "2"]:
                     print(Fore.RED + "Pilihan tidak dikenali. Silakan ulangi.")
                     continue
