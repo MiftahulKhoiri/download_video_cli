@@ -17,18 +17,19 @@ def main():
         hapus_layar()
         tampilkan_logo_utama()
         tampilkan_menu_utama()
-        sumber = input(Fore.YELLOW + " Pilih sumber (1/2/3/0): ").strip()
+        sumber = input(Fore.YELLOW + " Pilih sumber (1/2/3/4/0): ").strip()
         if sumber == "0":
             hapus_layar()
             time.sleep(1)
             tampilkan_logo_utama()
             print(Fore.GREEN + "\nTerima kasih telah menggunakan program VidioUnduh!\n")
             break
-        elif sumber in ["1", "2", "3"]:
+        elif sumber in ["1", "2", "3","4"]:
             while True:
                 print(Fore.MAGENTA + "\nPilih mode unduhan:")
                 print(Fore.BLUE + " 1. Unduh 1 video")
                 print(Fore.BLUE + " 2. Unduh banyak video")
+                print(Fore.WHITE + "3. Hasil download ")
                 print(Fore.RED + " 0. Kembali ke menu utama")
                 mode = input(Fore.YELLOW + " Pilihan (no:0/1/2) : ").strip().lower()
                 if mode == "0":
