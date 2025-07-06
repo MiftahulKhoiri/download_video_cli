@@ -33,7 +33,7 @@ def main():
                 mode = input(Fore.YELLOW + " Pilihan (no:0/1/2/3) : ").strip().lower()
                 if mode == "0":
                     break
-                elif mode == "3":
+                elif mode == "4":
                     tampilkan_hasil_download()
                     continue
                 elif mode not in ["1", "2"]:
