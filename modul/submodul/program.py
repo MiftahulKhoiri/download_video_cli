@@ -19,15 +19,24 @@ def bersihkan_nama_file(nama):
         nama = nama.replace(c, '')
     return nama.strip()
 
-def tampilkan_file_hasil_download():
+def tampilkan_hasil_download():
     folder = 'hasil_download'
     try:
         files = os.listdir(folder)
-        for file in files:
-            if file.endswith('.mp3') or file.endswith('.mp4'):
-                print(file)
+        hasil = [f for f in files if f.endswith('.mp3') or f.endswith('.mp4')]
+        if not hasil:
+            print(Fore.YELLOW + "\nTidak ada file .mp3 atau .mp4 di folder hasil_download.\n")
+        else:
+            print(Fore.CYAN + "\nDaftar file hasil download di folder 'hasil_download':")
+            for idx, file in enumerate(hasil, 1):
+                print(Fore.WHITE + f" {idx}. {file}")
     except FileNotFoundError:
-        print(f"Folder '{folder}' tidak ditemukan.")
+        print(Fore.RED + f"\nFolder '{folder}' tidak ditemukan.\n")
+    print(Fore.GREEN + "\n0. Kembali ke menu utama")
+    while True:
+        pilihan = input(Fore.YELLOW + " Tekan 0 untuk kembali: ").strip()
+        if pilihan == "0":
+            break
 
 def tanggal_hari_ini():
     return datetime.datetime.now().strftime("%d-%m-%Y")
