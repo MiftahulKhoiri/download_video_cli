@@ -19,6 +19,16 @@ def bersihkan_nama_file(nama):
         nama = nama.replace(c, '')
     return nama.strip()
 
+def tampilkan_file_hasil_download():
+    folder = 'hasil_download'
+    try:
+        files = os.listdir(folder)
+        for file in files:
+            if file.endswith('.mp3') or file.endswith('.mp4'):
+                print(file)
+    except FileNotFoundError:
+        print(f"Folder '{folder}' tidak ditemukan.")
+
 def tanggal_hari_ini():
     return datetime.datetime.now().strftime("%d-%m-%Y")
 
