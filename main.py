@@ -16,8 +16,6 @@ def main():
         hapus_layar()
         tampilkan_logo_utama()
         tampilkan_menu_utama()
-        print(Fore.WHITE + " 4. Cek hasil download")
-        print(Fore.RED + " 0. Keluar")
         sumber = input(Fore.YELLOW + " Pilih sumber (1/2/3/4/0): ").strip()
         if sumber == "0":
             hapus_layar()
