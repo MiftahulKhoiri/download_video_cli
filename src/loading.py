@@ -6,13 +6,25 @@ def clear_screen():
     os.system("cls" if os.name == "nt" else "clear")
 
 
+def show_logo():
+    logo = r"""
+ __   __      _    ____                _           _
+ \ \ / /___  | |_ |  _ \  _____      __| |_ __ ___  | | ___
+  \ V // _ \ | __|| | | |/ _ \ \ /\ / /| '_ \` _ \ | |/ _ \
+   | || (_) || |_ | |_| | (_) \ V  V / | | | | | | | |  __/
+   |_| \___/  \__||____/ \___/ \_/\_/  |_| |_| |_| |_|\___|
+
+        🎬  YOUTUBE / X VIDEO & MP3 DOWNLOADER  🎵
+    """
+    print(logo)
+
+
 def _parse_percent(d):
     """Ambil persentase sebagai angka float dari info progress yt-dlp."""
     pct_str = d.get("_percent_str", "0%").strip()
     try:
         return float(pct_str.replace("%", ""))
     except ValueError:
-        # fallback hitung manual dari byte
         total = d.get("total_bytes") or d.get("total_bytes_estimate")
         downloaded = d.get("downloaded_bytes")
         if total and downloaded:
@@ -42,7 +54,7 @@ def progress_hook(d):
         sys.stdout.write(
             f"\r📄 {short_name}\n[{bar}] {percent:5.1f}% @ {speed} ETA {eta}   "
         )
-        sys.stdout.write("\033[F")  # naik 1 baris supaya baris nama file tidak duplikat tiap update
+        sys.stdout.write("\033[F")
         sys.stdout.flush()
 
     elif d["status"] == "finished":
