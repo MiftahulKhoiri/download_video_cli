@@ -46,6 +46,9 @@ def download_single(url, target_height=None, resolution_label="terbaik"):
         "outtmpl": f"{folder}/%(title)s.%(ext)s",
         "merge_output_format": "mp4",
         "progress_hooks": [progress_hook],
+        "quiet": True,
+        "no_warnings": True,
+        "noprogress": True,
     }
 
     with yt_dlp.YoutubeDL(ydl_opts) as ydl:
@@ -95,6 +98,9 @@ def download_audio_single(url):
             "preferredquality": "192",
         }],
         "progress_hooks": [progress_hook],
+        "quiet": True,
+        "no_warnings": True,
+        "noprogress": True,
     }
 
     with yt_dlp.YoutubeDL(ydl_opts) as ydl:
