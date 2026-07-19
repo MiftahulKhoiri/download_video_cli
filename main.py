@@ -7,7 +7,6 @@ def main():
 
     while True:
         show_logo()
-        print("===== YOUTUBE/X DOWNLOADER =====")
         print("1. Dashboard")
         print("2. Download video")
         print("0. Keluar")
