@@ -1,6 +1,6 @@
 import yt_dlp
 from src.manager import ensure_download_folder, is_already_downloaded, save_file_record
-from src.loading import progress_hook
+from src.loading import progress_hook, clear_screen
 
 
 def get_video_info(url):
@@ -72,3 +72,91 @@ def download_many(url_list, target_height=None, resolution_label="terbaik"):
 
     print(f"\nRingkasan: {hasil['berhasil']} berhasil, {hasil['dilewati']} dilewati (duplikat), {hasil['gagal']} gagal.")
     return hasil
+
+
+# ---------- Logika menu (input/print) ----------
+
+def pilih_resolusi(video_formats):
+    if not video_formats:
+        return None, "terbaik"
+
+    print("\nResolusi tersedia:")
+    for i, f in enumerate(video_formats):
+        print(f"  [{i}] {f['height']}p ({f.get('ext', '?')})")
+    print(f"  [{len(video_formats)}] Terbaik (auto)")
+
+    while True:
+        pilihan = input("Pilih nomor resolusi: ").strip()
+        if pilihan.isdigit() and 0 <= int(pilihan) <= len(video_formats):
+            pilihan = int(pilihan)
+            break
+        print("Input tidak valid.")
+
+    if pilihan == len(video_formats):
+        return None, "terbaik"
+    return video_formats[pilihan]["height"], f"{video_formats[pilihan]['height']}p"
+
+
+def menu_download_1():
+    clear_screen()
+    print("===== DOWNLOAD 1 VIDEO =====")
+    url = input("Masukkan URL video: ").strip()
+    if not url:
+        print("URL tidak boleh kosong.")
+        input("\nTekan Enter untuk lanjut...")
+        return
+    try:
+        info = get_video_info(url)
+        formats = get_available_resolutions(info)
+        height, label = pilih_resolusi(formats)
+        download_single(url, target_height=height, resolution_label=label)
+    except Exception as e:
+        print(f"❌ Terjadi kesalahan: {e}")
+    input("\nTekan Enter untuk lanjut...")
+
+
+def menu_download_banyak():
+    clear_screen()
+    print("===== DOWNLOAD BANYAK VIDEO =====")
+    print("Masukkan URL satu per baris. Ketik 'selesai' jika sudah:")
+    urls = []
+    while True:
+        u = input("> ").strip()
+        if u.lower() == "selesai":
+            break
+        if u:
+            urls.append(u)
+    if not urls:
+        print("Tidak ada URL yang dimasukkan.")
+        input("\nTekan Enter untuk lanjut...")
+        return
+
+    try:
+        contoh_info = get_video_info(urls[0])
+        formats = get_available_resolutions(contoh_info)
+        height, label = pilih_resolusi(formats)
+        download_many(urls, target_height=height, resolution_label=label)
+    except Exception as e:
+        print(f"❌ Terjadi kesalahan: {e}")
+    input("\nTekan Enter untuk lanjut...")
+
+
+def run_download_menu():
+    """Loop menu download, dipanggil dari main."""
+    while True:
+        clear_screen()
+        print("===== MENU DOWNLOAD =====")
+        print("1. Download 1")
+        print("2. Download banyak")
+        print("0. Kembali")
+        pilihan = input("Pilih opsi: ").strip()
+
+        if pilihan == "1":
+            menu_download_1()
+        elif pilihan == "2":
+            menu_download_banyak()
+        elif pilihan == "0":
+            break
+        else:
+            print("Opsi tidak valid.")
+            input("\nTekan Enter untuk lanjut...")
