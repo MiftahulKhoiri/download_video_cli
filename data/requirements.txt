@@ -1,4 +1,0 @@
-requests
-yt-dlp
-ffmpeg
-colorama
