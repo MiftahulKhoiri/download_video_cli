@@ -4,7 +4,7 @@ from src.loading import show_logo
 
 
 def main():
-    show_logo()
+
     while True:
         show_logo()
         print("===== YOUTUBE/X DOWNLOADER =====")
