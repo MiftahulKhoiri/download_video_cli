@@ -1,75 +1,82 @@
-import os
-import time
-from colorama import Fore, Style, init
-from modul.submodul.program import *
-from modul.submodul.logo import *
-from modul.fb_download import unduh_facebook
-from modul.twitter_download import unduh_twitter
-from modul.youtube_download import unduh_video_audio_terpisah
+from src.dashboard import show_dashboard
+from src.download import get_video_info, get_available_resolutions, download_single, download_many
 
-init(autoreset=True)
+
+def pilih_resolusi(video_formats):
+    if not video_formats:
+        return None, "terbaik"
+
+    print("\nResolusi tersedia:")
+    for i, f in enumerate(video_formats):
+        print(f"  [{i}] {f['height']}p ({f.get('ext', '?')})")
+    print(f"  [{len(video_formats)}] Terbaik (auto)")
+
+    while True:
+        pilihan = input("Pilih nomor resolusi: ").strip()
+        if pilihan.isdigit() and 0 <= int(pilihan) <= len(video_formats):
+            pilihan = int(pilihan)
+            break
+        print("Input tidak valid.")
+
+    if pilihan == len(video_formats):
+        return None, "terbaik"
+    return video_formats[pilihan]["height"], f"{video_formats[pilihan]['height']}p"
+
+
+def menu_download():
+    print("\n1. Download 1 video")
+    print("2. Download banyak video")
+    pilihan = input("Pilih opsi: ").strip()
+
+    if pilihan == "1":
+        url = input("Masukkan URL video: ").strip()
+        if not url:
+            print("URL tidak boleh kosong.")
+            return
+        info = get_video_info(url)
+        formats = get_available_resolutions(info)
+        height, label = pilih_resolusi(formats)
+        download_single(url, target_height=height, resolution_label=label)
+
+    elif pilihan == "2":
+        print("Masukkan URL satu per baris. Ketik 'selesai' jika sudah:")
+        urls = []
+        while True:
+            u = input("> ").strip()
+            if u.lower() == "selesai":
+                break
+            if u:
+                urls.append(u)
+        if not urls:
+            print("Tidak ada URL yang dimasukkan.")
+            return
+
+        contoh_info = get_video_info(urls[0])
+        formats = get_available_resolutions(contoh_info)
+        height, label = pilih_resolusi(formats)
+        download_many(urls, target_height=height, resolution_label=label)
+    else:
+        print("Opsi tidak valid.")
+
 
 def main():
-    """Menu utama aplikasi unduhan video."""
     while True:
-        time.sleep(1)
-        hapus_layar()
-        tampilkan_logo_utama()
-        tampilkan_menu_utama()
-        sumber = input(Fore.YELLOW + " Pilih sumber (1/2/3/4/0): ").strip()
-        if sumber == "0":
-            hapus_layar()
-            time.sleep(1)
-            tampilkan_logo_utama()
-            print(Fore.GREEN + "\nTerima kasih telah menggunakan program VidioUnduh!\n")
+        print("\n===== YOUTUBE/X DOWNLOADER =====")
+        print("1. Dashboard")
+        print("2. Download video")
+        print("3. Keluar")
+        pilihan = input("Pilih menu: ").strip()
+
+        if pilihan == "1":
+            show_dashboard()
+        elif pilihan == "2":
+            menu_download()
+        elif pilihan == "3":
+            print("Sampai jumpa!")
             break
-        elif sumber == "4":
-            tampilkan_hasil_download()  # Panggil langsung, tidak masuk loop submenu unduhan
-            continue
-        elif sumber in ["1", "2", "3"]:
-            while True:
-                print(Fore.MAGENTA + "\nPilih mode unduhan:")
-                print(Fore.BLUE + " 1. Unduh 1 video")
-                print(Fore.BLUE + " 2. Unduh banyak video")
-                print(Fore.RED + " 0. Kembali ke menu utama")
-                mode = input(Fore.YELLOW + " Pilihan (no:0/1/2) : ").strip().lower()
-                if mode == "0":
-                    break
-                elif mode not in ["1", "2"]:
-                    print(Fore.RED + "Pilihan tidak dikenali. Silakan ulangi.")
-                    continue
-                daftar_url = []
-                if mode == "2":
-                    print(Fore.MAGENTA + "\nMasukkan alamat video satu per satu, tekan Enter tanpa input untuk mulai unduhan otomatis.")
-                    while True:
-                        alamat = input(Fore.YELLOW + " URL: ").strip()
-                        if alamat == "":
-                            break
-                        daftar_url.append(alamat)
-                else:
-                    alamat = input(Fore.YELLOW + "\nMasukkan URL video: ").strip()
-                    if alamat:
-                        daftar_url.append(alamat)
-                if not daftar_url:
-                    print(Fore.RED + "Tidak ada URL yang dimasukkan.")
-                    continue
-                resolusi = input(Fore.YELLOW + "Pilih resolusi (misal: 720), kosongkan untuk terbaik: ").strip()
-                if not resolusi:
-                    resolusi = None
-                if sumber == "1":  # Youtube
-                    for alamat in daftar_url:
-                        unduh_video_audio_terpisah(alamat, resolusi)
-                elif sumber == "2":  # Facebook
-                    cookies = input(Fore.YELLOW + "Masukkan path cookies.txt (atau kosongkan jika tidak perlu): ").strip()
-                    for alamat in daftar_url:
-                        unduh_facebook(alamat, cookies_path=cookies if cookies else None, resolusi=resolusi)
-                elif sumber == "3":  # Twitter/X
-                    cookies = input(Fore.YELLOW + "Masukkan path cookies.txt (atau kosongkan jika tidak perlu): ").strip()
-                    for alamat in daftar_url:
-                        unduh_twitter(alamat, cookies_path=cookies if cookies else None, resolusi=resolusi)
-                print(Fore.GREEN + "\nUnduhan selesai untuk semua video yang didaftar.\n")
         else:
-            print(Fore.RED + "Pilihan tidak dikenali. Silakan ulangi.")
+            print("Pilihan tidak valid.")
+
 
 if __name__ == "__main__":
     main()
