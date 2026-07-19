@@ -1,4 +1,5 @@
 from src.manager import load_history
+from src.loading import clear_screen
 
 
 def show_dashboard():
@@ -20,3 +21,17 @@ def show_dashboard():
         print(f"    URL      : {item.get('url')}")
         print("-" * 50)
     print("=" * 50)
+
+
+def run_dashboard_menu():
+    """Loop menu dashboard, dipanggil dari main."""
+    while True:
+        clear_screen()
+        show_dashboard()
+        print("\n0. Kembali")
+        pilihan = input("Pilih opsi: ").strip()
+        if pilihan == "0":
+            break
+        else:
+            print("Opsi tidak valid.")
+            input("\nTekan Enter untuk lanjut...")
