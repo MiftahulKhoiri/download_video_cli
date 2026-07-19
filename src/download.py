@@ -74,6 +74,56 @@ def download_many(url_list, target_height=None, resolution_label="terbaik"):
     return hasil
 
 
+def download_audio_single(url):
+    """Fungsi download 1 audio (MP3) dari YouTube/X."""
+    folder = ensure_download_folder()
+
+    info = get_video_info(url)
+    title = info.get("title", "audio")
+
+    already, existing = is_already_downloaded(title)
+    if already:
+        print(f"⚠️  '{title}' sudah pernah diunduh sebelumnya (file: {existing.get('filename')}). Dilewati.")
+        return False
+
+    ydl_opts = {
+        "format": "bestaudio/best",
+        "outtmpl": f"{folder}/%(title)s.%(ext)s",
+        "postprocessors": [{
+            "key": "FFmpegExtractAudio",
+            "preferredcodec": "mp3",
+            "preferredquality": "192",
+        }],
+        "progress_hooks": [progress_hook],
+    }
+
+    with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+        ydl.download([url])
+        filename = ydl.prepare_filename(info)
+        filename = f"{folder}/{title}.mp3"
+
+    save_file_record(title, filename, url, "mp3 (audio)")
+    print(f"\n✅ Selesai! '{title}' (MP3) berhasil diunduh.")
+    return True
+
+
+def download_audio_many(url_list):
+    """Fungsi download banyak audio (MP3) sekaligus."""
+    hasil = {"berhasil": 0, "dilewati": 0, "gagal": 0}
+
+    for i, url in enumerate(url_list, 1):
+        print(f"\n=== [{i}/{len(url_list)}] {url} ===")
+        try:
+            sukses = download_audio_single(url)
+            hasil["berhasil" if sukses else "dilewati"] += 1
+        except Exception as e:
+            print(f"❌ Gagal mengunduh {url}: {e}")
+            hasil["gagal"] += 1
+
+    print(f"\nRingkasan: {hasil['berhasil']} berhasil, {hasil['dilewati']} dilewati (duplikat), {hasil['gagal']} gagal.")
+    return hasil
+
+
 # ---------- Logika menu (input/print) ----------
 
 def pilih_resolusi(video_formats):
@@ -141,13 +191,53 @@ def menu_download_banyak():
     input("\nTekan Enter untuk lanjut...")
 
 
+def menu_download_mp3_1():
+    clear_screen()
+    print("===== DOWNLOAD MP3 (1 AUDIO) =====")
+    url = input("Masukkan URL video: ").strip()
+    if not url:
+        print("URL tidak boleh kosong.")
+        input("\nTekan Enter untuk lanjut...")
+        return
+    try:
+        download_audio_single(url)
+    except Exception as e:
+        print(f"❌ Terjadi kesalahan: {e}")
+    input("\nTekan Enter untuk lanjut...")
+
+
+def menu_download_mp3_banyak():
+    clear_screen()
+    print("===== DOWNLOAD MP3 (BANYAK AUDIO) =====")
+    print("Masukkan URL satu per baris. Ketik 'selesai' jika sudah:")
+    urls = []
+    while True:
+        u = input("> ").strip()
+        if u.lower() == "selesai":
+            break
+        if u:
+            urls.append(u)
+    if not urls:
+        print("Tidak ada URL yang dimasukkan.")
+        input("\nTekan Enter untuk lanjut...")
+        return
+
+    try:
+        download_audio_many(urls)
+    except Exception as e:
+        print(f"❌ Terjadi kesalahan: {e}")
+    input("\nTekan Enter untuk lanjut...")
+
+
 def run_download_menu():
     """Loop menu download, dipanggil dari main."""
     while True:
         clear_screen()
         print("===== MENU DOWNLOAD =====")
-        print("1. Download 1")
-        print("2. Download banyak")
+        print("1. Download video (1)")
+        print("2. Download video (banyak)")
+        print("3. Download MP3 (1)")
+        print("4. Download MP3 (banyak)")
         print("0. Kembali")
         pilihan = input("Pilih opsi: ").strip()
 
@@ -155,6 +245,10 @@ def run_download_menu():
             menu_download_1()
         elif pilihan == "2":
             menu_download_banyak()
+        elif pilihan == "3":
+            menu_download_mp3_1()
+        elif pilihan == "4":
+            menu_download_mp3_banyak()
         elif pilihan == "0":
             break
         else:
