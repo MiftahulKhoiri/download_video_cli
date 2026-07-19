@@ -19,7 +19,6 @@ def show_logo():
 
 
 def _parse_percent(d):
-    """Ambil persentase sebagai angka float dari info progress yt-dlp."""
     pct_str = d.get("_percent_str", "0%").strip()
     try:
         return float(pct_str.replace("%", ""))
@@ -34,11 +33,15 @@ def _parse_percent(d):
 def _render_bar(percent, width=30):
     percent = max(0, min(100, percent))
     filled = int(width * percent / 100)
-    bar = "█" * filled + "░" * (width - filled)
-    return bar
+    return "█" * filled + "░" * (width - filled)
+
+
+_first_line = True
 
 
 def progress_hook(d):
+    global _first_line
+
     if d["status"] == "downloading":
         filename = d.get("filename", "")
         short_name = filename.split("/")[-1]
@@ -46,18 +49,19 @@ def progress_hook(d):
             short_name = short_name[:32] + "..."
 
         percent = _parse_percent(d)
-        speed = d.get("_speed_str", "").strip()
-        eta = d.get("_eta_str", "").strip()
         bar = _render_bar(percent)
 
-        sys.stdout.write(
-            f"\r📄 {short_name}\n[{bar}] {percent:5.1f}% @ {speed} ETA {eta}   "
-        )
-        sys.stdout.write("\033[F")
+        if _first_line:
+            print(f"📄 {short_name}")
+            _first_line = False
+
+        sys.stdout.write(f"\r[{bar}] {percent:5.1f}%")
         sys.stdout.flush()
 
     elif d["status"] == "finished":
-        print("\n\n🔧 Memproses/menggabungkan file...")
+        _first_line = True
+        print()
 
     elif d["status"] == "error":
+        _first_line = True
         print("\n❌ Terjadi error saat mengunduh.")
