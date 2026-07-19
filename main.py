@@ -5,6 +5,7 @@ from src.loading import show_logo,clear_screen
 def main():
 
     while True:
+        clear_screen()
         show_logo()
         print("1. Dashboard")
         print("2. Download video")
