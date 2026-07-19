@@ -1,8 +1,10 @@
 from src.dashboard import run_dashboard_menu
 from src.download import run_download_menu
+from src.loading import show_logo
 
 
 def main():
+    show_logo()
     while True:
         print("===== YOUTUBE/X DOWNLOADER =====")
         print("1. Dashboard")
