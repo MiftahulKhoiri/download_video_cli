@@ -1,6 +1,7 @@
 from src.dashboard import run_dashboard_menu
 from src.download import run_download_menu
-from src.loading import show_logo,clear_screen
+from src.loading import clear_screen
+from src.logo import show_logo 
 
 def main():
 
