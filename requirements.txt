@@ -1,3 +1,4 @@
 yt-dlp>=2024.1.0
+colorama
 
 #perlu ffmpeg terinstall di sistem (bukan lewat pip) karena dipakai yt-dlp untuk menggabung video+audio — install lewat package manager OS (misal apt install ffmpeg, brew install ffmpeg, atau di Termux: pkg install ffmpeg).
