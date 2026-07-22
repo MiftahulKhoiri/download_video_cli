@@ -8,6 +8,7 @@ def show_logo():
     print(Fore.MAGENTA + "   \\_/ /___| |___/|_|_|_||____|")
     print()
     print(Fore.RED + "🎬 " + Fore.BLUE + "YouTube" + Fore.WHITE + " / " + Fore.CYAN + "X" + Fore.WHITE + " Video & " + Fore.GREEN + "MP3 Downloader" + Fore.RED + " 🎵")
+    print()
 
 if __name__ == "__main__":
     show_logo_color()
