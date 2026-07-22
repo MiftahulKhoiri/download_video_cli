@@ -1,7 +1,7 @@
 from colorama import init, Fore, Style
 init(autoreset=True)  # otomatis reset warna setelah setiap print
 
-def show_logo_color():
+def show_logo():
     print(Fore.CYAN + " __   _____   ___          _")
     print(Fore.YELLOW + " \\ \\ / /_   ) |   \\ _ __  | |")
     print(Fore.GREEN + "  \\ V / / /  | |) | '  \\ | |__")
