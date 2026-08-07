@@ -1,3 +1,4 @@
+# src/logo.py
 from colorama import init, Fore, Style
 init(autoreset=True)  # otomatis reset warna setelah setiap print
 
@@ -11,4 +12,4 @@ def show_logo():
     print()
 
 if __name__ == "__main__":
-    show_logo_color()
+    show_logo()
