@@ -11,6 +11,33 @@ def get_video_info(url):
         return ydl.extract_info(url, download=False)
 
 
+def expand_playlist(url):
+    """
+    Kalau url adalah playlist, kembalikan list URL video di dalamnya
+    (pakai extract_flat biar cepat, nggak fetch semua format tiap video).
+    Kalau url video tunggal, kembalikan [url] apa adanya.
+    """
+    ydl_opts = {"quiet": True, "no_warnings": True, "extract_flat": "in_playlist"}
+    with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+        info = ydl.extract_info(url, download=False)
+
+    if not info or (info.get("_type") != "playlist" and "entries" not in info):
+        return [url]
+
+    urls = []
+    for entry in info.get("entries") or []:
+        if not entry:
+            continue
+        entry_url = entry.get("url") or entry.get("webpage_url")
+        if entry_url and not entry_url.startswith("http"):
+            # sebagian extractor cuma kasih video ID di field 'url' pas extract_flat
+            vid = entry.get("id") or entry_url
+            entry_url = f"https://www.youtube.com/watch?v={vid}"
+        if entry_url:
+            urls.append(entry_url)
+    return urls
+
+
 def get_available_resolutions(info):
     formats = info.get("formats", [])
     video_formats = []
@@ -162,16 +189,24 @@ def pilih_resolusi(video_formats):
 def menu_download_1():
     clear_screen()
     print("===== DOWNLOAD 1 VIDEO =====")
-    url = input("Masukkan URL video: ").strip()
+    url = input("Masukkan URL video atau playlist: ").strip()
     if not url:
         print("URL tidak boleh kosong.")
         input("\nTekan Enter untuk lanjut...")
         return
     try:
-        info = get_video_info(url)
+        urls = expand_playlist(url)
+        if len(urls) > 1:
+            print(f"\n📋 Playlist terdeteksi: {len(urls)} video ditemukan.")
+
+        info = get_video_info(urls[0])
         formats = get_available_resolutions(info)
         height, label = pilih_resolusi(formats)
-        download_single(url, target_height=height, resolution_label=label)
+
+        if len(urls) > 1:
+            download_many(urls, target_height=height, resolution_label=label)
+        else:
+            download_single(urls[0], target_height=height, resolution_label=label)
     except Exception as e:
         print(f"❌ Terjadi kesalahan: {e}")
     input("\nTekan Enter untuk lanjut...")
@@ -180,20 +215,32 @@ def menu_download_1():
 def menu_download_banyak():
     clear_screen()
     print("===== DOWNLOAD BANYAK VIDEO =====")
-    print("Masukkan URL satu per baris. Ketik 'selesai' jika sudah:")
-    urls = []
+    print("Masukkan URL satu per baris (video/playlist). Ketik 'selesai' jika sudah:")
+    urls_input = []
     while True:
         u = input("> ").strip()
         if u.lower() == "selesai":
             break
         if u:
-            urls.append(u)
-    if not urls:
+            urls_input.append(u)
+    if not urls_input:
         print("Tidak ada URL yang dimasukkan.")
         input("\nTekan Enter untuk lanjut...")
         return
 
     try:
+        urls = []
+        for u in urls_input:
+            expanded = expand_playlist(u)
+            if len(expanded) > 1:
+                print(f"📋 Playlist terdeteksi ({u}): {len(expanded)} video ditambahkan.")
+            urls.extend(expanded)
+
+        if not urls:
+            print("Tidak ada video yang bisa diunduh dari URL yang dimasukkan.")
+            input("\nTekan Enter untuk lanjut...")
+            return
+
         contoh_info = get_video_info(urls[0])
         formats = get_available_resolutions(contoh_info)
         height, label = pilih_resolusi(formats)
@@ -206,13 +253,18 @@ def menu_download_banyak():
 def menu_download_mp3_1():
     clear_screen()
     print("===== DOWNLOAD MP3 (1 AUDIO) =====")
-    url = input("Masukkan URL video: ").strip()
+    url = input("Masukkan URL video atau playlist: ").strip()
     if not url:
         print("URL tidak boleh kosong.")
         input("\nTekan Enter untuk lanjut...")
         return
     try:
-        download_audio_single(url)
+        urls = expand_playlist(url)
+        if len(urls) > 1:
+            print(f"\n📋 Playlist terdeteksi: {len(urls)} audio akan diunduh.")
+            download_audio_many(urls)
+        else:
+            download_audio_single(urls[0])
     except Exception as e:
         print(f"❌ Terjadi kesalahan: {e}")
     input("\nTekan Enter untuk lanjut...")
@@ -221,20 +273,32 @@ def menu_download_mp3_1():
 def menu_download_mp3_banyak():
     clear_screen()
     print("===== DOWNLOAD MP3 (BANYAK AUDIO) =====")
-    print("Masukkan URL satu per baris. Ketik 'selesai' jika sudah:")
-    urls = []
+    print("Masukkan URL satu per baris (video/playlist). Ketik 'selesai' jika sudah:")
+    urls_input = []
     while True:
         u = input("> ").strip()
         if u.lower() == "selesai":
             break
         if u:
-            urls.append(u)
-    if not urls:
+            urls_input.append(u)
+    if not urls_input:
         print("Tidak ada URL yang dimasukkan.")
         input("\nTekan Enter untuk lanjut...")
         return
 
     try:
+        urls = []
+        for u in urls_input:
+            expanded = expand_playlist(u)
+            if len(expanded) > 1:
+                print(f"📋 Playlist terdeteksi ({u}): {len(expanded)} audio ditambahkan.")
+            urls.extend(expanded)
+
+        if not urls:
+            print("Tidak ada audio yang bisa diunduh dari URL yang dimasukkan.")
+            input("\nTekan Enter untuk lanjut...")
+            return
+
         download_audio_many(urls)
     except Exception as e:
         print(f"❌ Terjadi kesalahan: {e}")
