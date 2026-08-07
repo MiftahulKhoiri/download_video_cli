@@ -1,6 +1,8 @@
+# src/download.py
+import os
 import yt_dlp
 from src.manager import ensure_download_folder, is_already_downloaded, save_file_record
-from src.loading import progress_hook, clear_screen
+from src.loading import progress_hook, clear_screen, reset_progress
 
 
 def get_video_info(url):
@@ -41,6 +43,7 @@ def download_single(url, target_height=None, resolution_label="terbaik"):
         print(f"⚠️  '{title}' sudah pernah diunduh sebelumnya (file: {existing.get('filename')}). Dilewati.")
         return False
 
+    reset_progress()
     ydl_opts = {
         "format": _build_format_string(target_height),
         "outtmpl": f"{folder}/%(title)s.%(ext)s",
@@ -89,6 +92,7 @@ def download_audio_single(url):
         print(f"⚠️  '{title}' sudah pernah diunduh sebelumnya (file: {existing.get('filename')}). Dilewati.")
         return False
 
+    reset_progress()
     ydl_opts = {
         "format": "bestaudio/best",
         "outtmpl": f"{folder}/%(title)s.%(ext)s",
@@ -105,8 +109,10 @@ def download_audio_single(url):
 
     with yt_dlp.YoutubeDL(ydl_opts) as ydl:
         ydl.download([url])
-        filename = ydl.prepare_filename(info)
-        filename = f"{folder}/{title}.mp3"
+        # nama sebelum convert sudah di-sanitize yt-dlp sesuai isi disk,
+        # jadi tinggal ganti ekstensinya, bukan bikin ulang dari title mentah
+        base, _ = os.path.splitext(ydl.prepare_filename(info))
+        filename = f"{base}.mp3"
 
     save_file_record(title, filename, url, "mp3 (audio)")
     print(f"\n✅ Selesai! '{title}' (MP3) berhasil diunduh.")
