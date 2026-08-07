@@ -1,21 +1,10 @@
+# src/loading.py
 import os
 import sys
 
 
 def clear_screen():
     os.system("cls" if os.name == "nt" else "clear")
-
-
-def show_logo():
-    logo = r"""
- __   _____   ___          _
- \ \ / /_   ) |   \ _ __  | |
-  \ V / / /  | |) | '  \ | |__
-   \_/ /___| |___/|_|_|_||____|
-
-  🎬 YouTube / X Video & MP3 Downloader 🎵
-    """
-    print(logo)
 
 
 def _parse_percent(d):
@@ -37,6 +26,12 @@ def _render_bar(percent, width=30):
 
 
 _first_line = True
+
+
+def reset_progress():
+    """Panggil sebelum tiap download baru, biar progress bar nggak nyangkut kalau download sebelumnya error."""
+    global _first_line
+    _first_line = True
 
 
 def progress_hook(d):
