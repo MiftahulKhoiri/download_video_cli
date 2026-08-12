@@ -1,8 +1,13 @@
 # src/download.py
 import os
+import shutil
 import yt_dlp
 from src.manager import ensure_download_folder, is_already_downloaded, save_file_record
 from src.loading import progress_hook, clear_screen, reset_progress
+
+
+def is_ffmpeg_available():
+    return shutil.which("ffmpeg") is not None
 
 
 def get_video_info(url):
@@ -24,15 +29,22 @@ def expand_playlist(url):
     if not info or (info.get("_type") != "playlist" and "entries" not in info):
         return [url]
 
+    is_youtube = "youtube.com" in url or "youtu.be" in url
+
     urls = []
     for entry in info.get("entries") or []:
         if not entry:
             continue
         entry_url = entry.get("url") or entry.get("webpage_url")
         if entry_url and not entry_url.startswith("http"):
-            # sebagian extractor cuma kasih video ID di field 'url' pas extract_flat
-            vid = entry.get("id") or entry_url
-            entry_url = f"https://www.youtube.com/watch?v={vid}"
+            if is_youtube:
+                # sebagian extractor cuma kasih video ID di field 'url' pas extract_flat
+                vid = entry.get("id") or entry_url
+                entry_url = f"https://www.youtube.com/watch?v={vid}"
+            else:
+                # Bukan YouTube dan URL-nya nggak lengkap: skip drpd nebak domain yang salah
+                print(f"⚠️  Melewati entri playlist tanpa URL lengkap: {entry.get('id') or entry_url}")
+                continue
         if entry_url:
             urls.append(entry_url)
     return urls
@@ -58,6 +70,36 @@ def _build_format_string(target_height):
     return f"bestvideo[height<={target_height}]+bestaudio/best[height<={target_height}]"
 
 
+def _resolve_final_filepath(ydl, result_info, expected_ext=None):
+    """
+    Cari path file hasil download yang BENAR-BENAR ada di disk, bukan cuma tebakan
+    dari template nama file. Perlu karena setelah merge (video) atau convert (audio),
+    ekstensi asli bisa beda dari yang dihitung sebelum proses download berjalan.
+    """
+    if not result_info:
+        return None
+
+    candidates = []
+    for item in result_info.get("requested_downloads") or []:
+        fp = item.get("filepath") or item.get("_filename")
+        if fp:
+            candidates.append(fp)
+
+    candidates.append(ydl.prepare_filename(result_info))
+
+    if expected_ext:
+        for c in list(candidates):
+            base, _ = os.path.splitext(c)
+            candidates.append(f"{base}.{expected_ext}")
+
+    for c in candidates:
+        if c and os.path.exists(c):
+            return c
+
+    # Fallback terakhir: tebakan terbaik meski belum tentu 100% akurat
+    return candidates[0] if candidates else None
+
+
 def download_single(url, target_height=None, resolution_label="terbaik"):
     """Fungsi download 1 video dari YouTube/X."""
     folder = ensure_download_folder()
@@ -65,9 +107,9 @@ def download_single(url, target_height=None, resolution_label="terbaik"):
     info = get_video_info(url)
     title = info.get("title", "video")
 
-    already, existing = is_already_downloaded(title)
+    already, existing = is_already_downloaded(title, resolution_label)
     if already:
-        print(f"⚠️  '{title}' sudah pernah diunduh sebelumnya (file: {existing.get('filename')}). Dilewati.")
+        print(f"⚠️  '{title}' ({resolution_label}) sudah pernah diunduh sebelumnya (file: {existing.get('filename')}). Dilewati.")
         return False
 
     reset_progress()
@@ -82,8 +124,8 @@ def download_single(url, target_height=None, resolution_label="terbaik"):
     }
 
     with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-        ydl.download([url])
-        filename = ydl.prepare_filename(info)
+        result = ydl.extract_info(url, download=True)
+        filename = _resolve_final_filepath(ydl, result, expected_ext="mp4")
 
     save_file_record(title, filename, url, resolution_label)
     print(f"\n✅ Selesai! '{title}' berhasil diunduh.")
@@ -113,10 +155,11 @@ def download_audio_single(url):
 
     info = get_video_info(url)
     title = info.get("title", "audio")
+    resolution_label = "mp3 (audio)"
 
-    already, existing = is_already_downloaded(title)
+    already, existing = is_already_downloaded(title, resolution_label)
     if already:
-        print(f"⚠️  '{title}' sudah pernah diunduh sebelumnya (file: {existing.get('filename')}). Dilewati.")
+        print(f"⚠️  '{title}' (MP3) sudah pernah diunduh sebelumnya (file: {existing.get('filename')}). Dilewati.")
         return False
 
     reset_progress()
@@ -135,13 +178,10 @@ def download_audio_single(url):
     }
 
     with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-        ydl.download([url])
-        # nama sebelum convert sudah di-sanitize yt-dlp sesuai isi disk,
-        # jadi tinggal ganti ekstensinya, bukan bikin ulang dari title mentah
-        base, _ = os.path.splitext(ydl.prepare_filename(info))
-        filename = f"{base}.mp3"
+        result = ydl.extract_info(url, download=True)
+        filename = _resolve_final_filepath(ydl, result, expected_ext="mp3")
 
-    save_file_record(title, filename, url, "mp3 (audio)")
+    save_file_record(title, filename, url, resolution_label)
     print(f"\n✅ Selesai! '{title}' (MP3) berhasil diunduh.")
     return True
 
@@ -310,6 +350,9 @@ def run_download_menu():
     while True:
         clear_screen()
         print("===== MENU DOWNLOAD =====")
+        if not is_ffmpeg_available():
+            print("⚠️  ffmpeg tidak ditemukan. Merge video+audio & convert ke MP3 bisa gagal.")
+            print("    Install dulu: 'pkg install ffmpeg' (Termux) atau 'sudo apt install ffmpeg' (Linux).\n")
         print("1. Download video (1)")
         print("2. Download video (banyak)")
         print("3. Download MP3 (1)")
