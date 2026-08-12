@@ -19,21 +19,37 @@ def load_history():
     try:
         with open(HISTORY_FILE, "r", encoding="utf-8") as f:
             return json.load(f)
-    except (json.JSONDecodeError, FileNotFoundError):
+    except (json.JSONDecodeError, OSError) as e:
+        print(f"⚠️  Gagal membaca riwayat download ({HISTORY_FILE}): {e}. Menggunakan riwayat kosong.")
         return []
 
 
 def save_history(data):
+    """Simpan riwayat ke disk. Return True kalau berhasil, False kalau gagal (tanpa crash)."""
     ensure_download_folder()
-    with open(HISTORY_FILE, "w", encoding="utf-8") as f:
-        json.dump(data, f, indent=2, ensure_ascii=False)
+    try:
+        with open(HISTORY_FILE, "w", encoding="utf-8") as f:
+            json.dump(data, f, indent=2, ensure_ascii=False)
+        return True
+    except OSError as e:
+        print(f"⚠️  Gagal menyimpan riwayat download ke {HISTORY_FILE}: {e}")
+        return False
 
 
-def is_already_downloaded(title):
-    """Cek apakah judul video sudah pernah diunduh (case-insensitive)."""
+def is_already_downloaded(title, resolution=None):
+    """
+    Cek apakah judul + resolusi/format tertentu sudah pernah diunduh (case-insensitive).
+    resolution=None -> cocokkan judul saja (perilaku lama, buat caller yang nggak
+    peduli resolusi/format spesifik).
+    """
     history = load_history()
+    title_norm = title.strip().lower()
     for item in history:
-        if item.get("title", "").strip().lower() == title.strip().lower():
+        if item.get("title", "").strip().lower() != title_norm:
+            continue
+        if resolution is None:
+            return True, item
+        if item.get("resolution", "").strip().lower() == resolution.strip().lower():
             return True, item
     return False, None
 
@@ -41,7 +57,7 @@ def is_already_downloaded(title):
 def save_file_record(title, filename, url, resolution):
     """Simpan catatan hasil download ke download.json."""
     history = load_history()
-    already, _ = is_already_downloaded(title)
+    already, _ = is_already_downloaded(title, resolution)
     if already:
         return False
     history.append({
@@ -50,5 +66,4 @@ def save_file_record(title, filename, url, resolution):
         "url": url,
         "resolution": resolution,
     })
-    save_history(history)
-    return True
+    return save_history(history)
