@@ -60,3 +60,30 @@ def progress_hook(d):
     elif d["status"] == "error":
         _first_line = True
         print("\n❌ Terjadi error saat mengunduh.")
+
+
+# Pesan (mulai, selesai) buat tiap postprocessor yang relevan buat user.
+# Postprocessor lain (MoveFiles, Fixup, dll) sengaja didiamkan biar nggak berisik.
+_PP_MESSAGES = {
+    "Merger": ("🔗 Menggabungkan video & audio...", "✅ Video & audio berhasil digabung."),
+    "FFmpegExtractAudio": ("🎵 Mengonversi ke MP3...", "✅ Konversi ke MP3 selesai."),
+}
+
+
+def postprocessor_hook(d):
+    """
+    Dipanggil yt-dlp pas proses pasca-download (merge/convert) berjalan.
+    Tanpa ini, layar diam total selama ffmpeg bekerja dan user bisa ngira
+    program hang, terutama buat video panjang atau convert MP3.
+    """
+    pp = d.get("postprocessor", "")
+    status = d.get("status")
+    messages = _PP_MESSAGES.get(pp)
+    if not messages:
+        return
+
+    started_msg, finished_msg = messages
+    if status == "started":
+        print(started_msg)
+    elif status == "finished":
+        print(finished_msg)
