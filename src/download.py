@@ -3,7 +3,7 @@ import os
 import shutil
 import yt_dlp
 from src.manager import ensure_download_folder, is_already_downloaded, save_file_record
-from src.loading import progress_hook, clear_screen, reset_progress
+from src.loading import progress_hook, postprocessor_hook, clear_screen, reset_progress
 
 
 def is_ffmpeg_available():
@@ -14,6 +14,22 @@ def get_video_info(url):
     ydl_opts = {"quiet": True, "no_warnings": True}
     with yt_dlp.YoutubeDL(ydl_opts) as ydl:
         return ydl.extract_info(url, download=False)
+
+
+def _video_needs_merge(info):
+    """
+    Heuristik konservatif: True kalau situsnya punya stream video-only terpisah
+    (bakal digabung sama audio via ffmpeg oleh format selector 'bestvideo+bestaudio'),
+    False kalau semua format yang tersedia sudah gabungan video+audio (mis. X/Twitter
+    biasanya begini, jadi ffmpeg gak wajib).
+    Dicek dari daftar format asli (bukan dari resolusi yang dipilih user), soalnya mode
+    "terbaik" (auto) justru yang paling sering butuh merge.
+    """
+    formats = info.get("formats", [])
+    return any(
+        f.get("vcodec") not in (None, "none") and f.get("acodec") in (None, "none")
+        for f in formats
+    )
 
 
 def expand_playlist(url):
@@ -100,16 +116,22 @@ def _resolve_final_filepath(ydl, result_info, expected_ext=None):
     return candidates[0] if candidates else None
 
 
-def download_single(url, target_height=None, resolution_label="terbaik"):
+def download_single(url, target_height=None, resolution_label="terbaik", info=None):
     """Fungsi download 1 video dari YouTube/X."""
     folder = ensure_download_folder()
 
-    info = get_video_info(url)
+    if info is None:
+        info = get_video_info(url)
     title = info.get("title", "video")
 
     already, existing = is_already_downloaded(title, resolution_label)
     if already:
         print(f"⚠️  '{title}' ({resolution_label}) sudah pernah diunduh sebelumnya (file: {existing.get('filename')}). Dilewati.")
+        return False
+
+    if _video_needs_merge(info) and not is_ffmpeg_available():
+        print(f"❌ '{title}' butuh ffmpeg buat menggabungkan video+audio, tapi ffmpeg belum terpasang. Dilewati.")
+        print("    Install dulu: 'pkg install ffmpeg' (Termux) atau 'sudo apt install ffmpeg' (Linux).")
         return False
 
     reset_progress()
@@ -118,6 +140,7 @@ def download_single(url, target_height=None, resolution_label="terbaik"):
         "outtmpl": f"{folder}/%(title)s.%(ext)s",
         "merge_output_format": "mp4",
         "progress_hooks": [progress_hook],
+        "postprocessor_hooks": [postprocessor_hook],
         "quiet": True,
         "no_warnings": True,
         "noprogress": True,
@@ -132,14 +155,15 @@ def download_single(url, target_height=None, resolution_label="terbaik"):
     return True
 
 
-def download_many(url_list, target_height=None, resolution_label="terbaik"):
+def download_many(url_list, target_height=None, resolution_label="terbaik", first_info=None):
     """Fungsi download banyak video sekaligus (list URL)."""
     hasil = {"berhasil": 0, "dilewati": 0, "gagal": 0}
 
     for i, url in enumerate(url_list, 1):
         print(f"\n=== [{i}/{len(url_list)}] {url} ===")
         try:
-            sukses = download_single(url, target_height=target_height, resolution_label=resolution_label)
+            info = first_info if (i == 1 and first_info is not None) else None
+            sukses = download_single(url, target_height=target_height, resolution_label=resolution_label, info=info)
             hasil["berhasil" if sukses else "dilewati"] += 1
         except Exception as e:
             print(f"❌ Gagal mengunduh {url}: {e}")
@@ -149,15 +173,20 @@ def download_many(url_list, target_height=None, resolution_label="terbaik"):
     return hasil
 
 
-def download_audio_single(url):
+def download_audio_single(url, info=None):
     """Fungsi download 1 audio (MP3) dari YouTube/X."""
     folder = ensure_download_folder()
 
-    info = get_video_info(url)
-    title = info.get("title", "audio")
-    resolution_label = "mp3 (audio)"
+    if not is_ffmpeg_available():
+        print("❌ Convert ke MP3 butuh ffmpeg, tapi belum terpasang. Dilewati.")
+        print("    Install dulu: 'pkg install ffmpeg' (Termux) atau 'sudo apt install ffmpeg' (Linux).")
+        return False
 
-    already, existing = is_already_downloaded(title, resolution_label)
+    if info is None:
+        info = get_video_info(url)
+    title = info.get("title", "audio")
+
+    already, existing = is_already_downloaded(title, "mp3 (audio)")
     if already:
         print(f"⚠️  '{title}' (MP3) sudah pernah diunduh sebelumnya (file: {existing.get('filename')}). Dilewati.")
         return False
@@ -172,6 +201,7 @@ def download_audio_single(url):
             "preferredquality": "192",
         }],
         "progress_hooks": [progress_hook],
+        "postprocessor_hooks": [postprocessor_hook],
         "quiet": True,
         "no_warnings": True,
         "noprogress": True,
@@ -181,19 +211,20 @@ def download_audio_single(url):
         result = ydl.extract_info(url, download=True)
         filename = _resolve_final_filepath(ydl, result, expected_ext="mp3")
 
-    save_file_record(title, filename, url, resolution_label)
+    save_file_record(title, filename, url, "mp3 (audio)")
     print(f"\n✅ Selesai! '{title}' (MP3) berhasil diunduh.")
     return True
 
 
-def download_audio_many(url_list):
+def download_audio_many(url_list, first_info=None):
     """Fungsi download banyak audio (MP3) sekaligus."""
     hasil = {"berhasil": 0, "dilewati": 0, "gagal": 0}
 
     for i, url in enumerate(url_list, 1):
         print(f"\n=== [{i}/{len(url_list)}] {url} ===")
         try:
-            sukses = download_audio_single(url)
+            info = first_info if (i == 1 and first_info is not None) else None
+            sukses = download_audio_single(url, info=info)
             hasil["berhasil" if sukses else "dilewati"] += 1
         except Exception as e:
             print(f"❌ Gagal mengunduh {url}: {e}")
@@ -244,9 +275,9 @@ def menu_download_1():
         height, label = pilih_resolusi(formats)
 
         if len(urls) > 1:
-            download_many(urls, target_height=height, resolution_label=label)
+            download_many(urls, target_height=height, resolution_label=label, first_info=info)
         else:
-            download_single(urls[0], target_height=height, resolution_label=label)
+            download_single(urls[0], target_height=height, resolution_label=label, info=info)
     except Exception as e:
         print(f"❌ Terjadi kesalahan: {e}")
     input("\nTekan Enter untuk lanjut...")
@@ -284,7 +315,7 @@ def menu_download_banyak():
         contoh_info = get_video_info(urls[0])
         formats = get_available_resolutions(contoh_info)
         height, label = pilih_resolusi(formats)
-        download_many(urls, target_height=height, resolution_label=label)
+        download_many(urls, target_height=height, resolution_label=label, first_info=contoh_info)
     except Exception as e:
         print(f"❌ Terjadi kesalahan: {e}")
     input("\nTekan Enter untuk lanjut...")
@@ -293,6 +324,11 @@ def menu_download_banyak():
 def menu_download_mp3_1():
     clear_screen()
     print("===== DOWNLOAD MP3 (1 AUDIO) =====")
+    if not is_ffmpeg_available():
+        print("❌ ffmpeg belum terpasang, convert ke MP3 nggak bisa jalan.")
+        print("    Install dulu: 'pkg install ffmpeg' (Termux) atau 'sudo apt install ffmpeg' (Linux).")
+        input("\nTekan Enter untuk lanjut...")
+        return
     url = input("Masukkan URL video atau playlist: ").strip()
     if not url:
         print("URL tidak boleh kosong.")
@@ -313,6 +349,11 @@ def menu_download_mp3_1():
 def menu_download_mp3_banyak():
     clear_screen()
     print("===== DOWNLOAD MP3 (BANYAK AUDIO) =====")
+    if not is_ffmpeg_available():
+        print("❌ ffmpeg belum terpasang, convert ke MP3 nggak bisa jalan.")
+        print("    Install dulu: 'pkg install ffmpeg' (Termux) atau 'sudo apt install ffmpeg' (Linux).")
+        input("\nTekan Enter untuk lanjut...")
+        return
     print("Masukkan URL satu per baris (video/playlist). Ketik 'selesai' jika sudah:")
     urls_input = []
     while True:
@@ -351,7 +392,7 @@ def run_download_menu():
         clear_screen()
         print("===== MENU DOWNLOAD =====")
         if not is_ffmpeg_available():
-            print("⚠️  ffmpeg tidak ditemukan. Merge video+audio & convert ke MP3 bisa gagal.")
+            print("⚠️  ffmpeg tidak ditemukan. Download yang butuh merge/convert bakal ditolak otomatis.")
             print("    Install dulu: 'pkg install ffmpeg' (Termux) atau 'sudo apt install ffmpeg' (Linux).\n")
         print("1. Download video (1)")
         print("2. Download video (banyak)")
