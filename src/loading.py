@@ -1,6 +1,7 @@
 # src/loading.py
 import os
 import sys
+from colorama import Fore, Style
 
 
 def clear_screen():
@@ -19,10 +20,34 @@ def _parse_percent(d):
         return 0.0
 
 
+# Warna berubah tiap kelipatan 20%, dari merah (baru mulai) ke hijau (hampir kelar).
+# Ubah angka threshold atau tambah/kurang entri di sini kalau mau interval beda.
+_COLOR_STEPS = [
+    (0, Fore.RED),
+    (20, Fore.YELLOW),
+    (40, Fore.MAGENTA),
+    (60, Fore.CYAN),
+    (80, Fore.GREEN),
+]
+
+
+def _color_for_percent(percent):
+    color = _COLOR_STEPS[0][1]
+    for threshold, c in _COLOR_STEPS:
+        if percent >= threshold:
+            color = c
+    return color
+
+
 def _render_bar(percent, width=30):
     percent = max(0, min(100, percent))
     filled = int(width * percent / 100)
-    return "█" * filled + "░" * (width - filled)
+    color = _color_for_percent(percent)
+    bar = (
+        color + ("█" * filled) + Style.RESET_ALL
+        + Fore.LIGHTBLACK_EX + ("░" * (width - filled)) + Style.RESET_ALL
+    )
+    return bar, color
 
 
 _first_line = True
@@ -44,13 +69,13 @@ def progress_hook(d):
             short_name = short_name[:32] + "..."
 
         percent = _parse_percent(d)
-        bar = _render_bar(percent)
+        bar, color = _render_bar(percent)
 
         if _first_line:
-            print(f"📄 {short_name}")
+            print(f"{Fore.CYAN}📄 {short_name}{Style.RESET_ALL}")
             _first_line = False
 
-        sys.stdout.write(f"\r[{bar}] {percent:5.1f}%")
+        sys.stdout.write(f"\r[{bar}] {color}{percent:5.1f}%{Style.RESET_ALL}")
         sys.stdout.flush()
 
     elif d["status"] == "finished":
@@ -59,14 +84,16 @@ def progress_hook(d):
 
     elif d["status"] == "error":
         _first_line = True
-        print("\n❌ Terjadi error saat mengunduh.")
+        print(f"\n{Fore.RED}❌ Terjadi error saat mengunduh.{Style.RESET_ALL}")
 
 
 # Pesan (mulai, selesai) buat tiap postprocessor yang relevan buat user.
 # Postprocessor lain (MoveFiles, Fixup, dll) sengaja didiamkan biar nggak berisik.
 _PP_MESSAGES = {
-    "Merger": ("🔗 Menggabungkan video & audio...", "✅ Video & audio berhasil digabung."),
-    "FFmpegExtractAudio": ("🎵 Mengonversi ke MP3...", "✅ Konversi ke MP3 selesai."),
+    "Merger": (f"{Fore.CYAN}🔗 Menggabungkan video & audio...{Style.RESET_ALL}",
+               f"{Fore.GREEN}✅ Video & audio berhasil digabung.{Style.RESET_ALL}"),
+    "FFmpegExtractAudio": (f"{Fore.CYAN}🎵 Mengonversi ke MP3...{Style.RESET_ALL}",
+                            f"{Fore.GREEN}✅ Konversi ke MP3 selesai.{Style.RESET_ALL}"),
 }
 
 
