@@ -1,6 +1,9 @@
 # src/loading.py
+import itertools
 import os
 import sys
+import threading
+import time
 from colorama import Fore, Style
 
 
@@ -21,7 +24,6 @@ def _parse_percent(d):
 
 
 # Warna berubah tiap kelipatan 20%, dari merah (baru mulai) ke hijau (hampir kelar).
-# Ubah angka threshold atau tambah/kurang entri di sini kalau mau interval beda.
 _COLOR_STEPS = [
     (0, Fore.RED),
     (20, Fore.YELLOW),
@@ -88,7 +90,6 @@ def progress_hook(d):
 
 
 # Pesan (mulai, selesai) buat tiap postprocessor yang relevan buat user.
-# Postprocessor lain (MoveFiles, Fixup, dll) sengaja didiamkan biar nggak berisik.
 _PP_MESSAGES = {
     "Merger": (f"{Fore.CYAN}🔗 Menggabungkan video & audio...{Style.RESET_ALL}",
                f"{Fore.GREEN}✅ Video & audio berhasil digabung.{Style.RESET_ALL}"),
@@ -98,11 +99,7 @@ _PP_MESSAGES = {
 
 
 def postprocessor_hook(d):
-    """
-    Dipanggil yt-dlp pas proses pasca-download (merge/convert) berjalan.
-    Tanpa ini, layar diam total selama ffmpeg bekerja dan user bisa ngira
-    program hang, terutama buat video panjang atau convert MP3.
-    """
+    """Dipanggil yt-dlp pas proses pasca-download (merge/convert) berjalan."""
     pp = d.get("postprocessor", "")
     status = d.get("status")
     messages = _PP_MESSAGES.get(pp)
@@ -114,3 +111,43 @@ def postprocessor_hook(d):
         print(started_msg)
     elif status == "finished":
         print(finished_msg)
+
+
+class Spinner:
+    """
+    Spinner kecil biar user tau proses masih jalan (bukan macet) pas nunggu
+    request jaringan yang nggak punya progress sendiri, misal ambil info video
+    atau cek isi playlist. Dipakai sebagai context manager:
+
+        with Spinner("Mengambil info video..."):
+            info = get_video_info(url)
+    """
+    _FRAMES = "⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏"
+
+    def __init__(self, message="Memuat..."):
+        self.message = message
+        self._stop_event = threading.Event()
+        self._thread = None
+
+    def _spin(self):
+        for frame in itertools.cycle(self._FRAMES):
+            if self._stop_event.is_set():
+                break
+            sys.stdout.write(f"\r{Fore.CYAN}{frame}{Style.RESET_ALL} {self.message}")
+            sys.stdout.flush()
+            time.sleep(0.1)
+
+    def __enter__(self):
+        self._stop_event.clear()
+        self._thread = threading.Thread(target=self._spin, daemon=True)
+        self._thread.start()
+        return self
+
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        self._stop_event.set()
+        if self._thread:
+            self._thread.join()
+        clear_len = len(self.message) + 4
+        sys.stdout.write("\r" + " " * clear_len + "\r")
+        sys.stdout.flush()
+        return False
