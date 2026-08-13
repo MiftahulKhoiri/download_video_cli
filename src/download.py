@@ -3,7 +3,7 @@ import os
 import shutil
 import yt_dlp
 from src.manager import ensure_download_folder, is_already_downloaded, save_file_record
-from src.loading import progress_hook, postprocessor_hook, clear_screen, reset_progress
+from src.loading import progress_hook, postprocessor_hook, clear_screen, reset_progress, Spinner
 
 
 def is_ffmpeg_available():
@@ -11,19 +11,17 @@ def is_ffmpeg_available():
 
 
 def get_video_info(url):
-    ydl_opts = {"quiet": True, "no_warnings": True}
-    with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-        return ydl.extract_info(url, download=False)
+    with Spinner("🔍 Mengambil info video..."):
+        ydl_opts = {"quiet": True, "no_warnings": True}
+        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+            return ydl.extract_info(url, download=False)
 
 
 def _video_needs_merge(info):
     """
     Heuristik konservatif: True kalau situsnya punya stream video-only terpisah
     (bakal digabung sama audio via ffmpeg oleh format selector 'bestvideo+bestaudio'),
-    False kalau semua format yang tersedia sudah gabungan video+audio (mis. X/Twitter
-    biasanya begini, jadi ffmpeg gak wajib).
-    Dicek dari daftar format asli (bukan dari resolusi yang dipilih user), soalnya mode
-    "terbaik" (auto) justru yang paling sering butuh merge.
+    False kalau semua format yang tersedia sudah gabungan video+audio.
     """
     formats = info.get("formats", [])
     return any(
@@ -38,9 +36,10 @@ def expand_playlist(url):
     (pakai extract_flat biar cepat, nggak fetch semua format tiap video).
     Kalau url video tunggal, kembalikan [url] apa adanya.
     """
-    ydl_opts = {"quiet": True, "no_warnings": True, "extract_flat": "in_playlist"}
-    with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-        info = ydl.extract_info(url, download=False)
+    with Spinner("🔍 Memeriksa URL / playlist..."):
+        ydl_opts = {"quiet": True, "no_warnings": True, "extract_flat": "in_playlist"}
+        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+            info = ydl.extract_info(url, download=False)
 
     if not info or (info.get("_type") != "playlist" and "entries" not in info):
         return [url]
@@ -54,11 +53,9 @@ def expand_playlist(url):
         entry_url = entry.get("url") or entry.get("webpage_url")
         if entry_url and not entry_url.startswith("http"):
             if is_youtube:
-                # sebagian extractor cuma kasih video ID di field 'url' pas extract_flat
                 vid = entry.get("id") or entry_url
                 entry_url = f"https://www.youtube.com/watch?v={vid}"
             else:
-                # Bukan YouTube dan URL-nya nggak lengkap: skip drpd nebak domain yang salah
                 print(f"⚠️  Melewati entri playlist tanpa URL lengkap: {entry.get('id') or entry_url}")
                 continue
         if entry_url:
@@ -89,8 +86,7 @@ def _build_format_string(target_height):
 def _resolve_final_filepath(ydl, result_info, expected_ext=None):
     """
     Cari path file hasil download yang BENAR-BENAR ada di disk, bukan cuma tebakan
-    dari template nama file. Perlu karena setelah merge (video) atau convert (audio),
-    ekstensi asli bisa beda dari yang dihitung sebelum proses download berjalan.
+    dari template nama file.
     """
     if not result_info:
         return None
@@ -112,7 +108,6 @@ def _resolve_final_filepath(ydl, result_info, expected_ext=None):
         if c and os.path.exists(c):
             return c
 
-    # Fallback terakhir: tebakan terbaik meski belum tentu 100% akurat
     return candidates[0] if candidates else None
 
 
