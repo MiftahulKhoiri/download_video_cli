@@ -85,7 +85,7 @@ def _decrypt_reveal(lines, duration=15.0, frame_delay=0.045,
     sys.stdout.flush()
 
 
-def show_intro(duration=9.0):
+def show_intro(duration=15.0):
     """
     Splash screen animasi, dipanggil SEKALI di awal program (main.py) sebelum
     masuk ke menu utama. Total durasi kira-kira duration + 1.5 detik.
