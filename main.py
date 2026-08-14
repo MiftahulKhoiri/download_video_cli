@@ -1,9 +1,12 @@
 from src.dashboard import run_dashboard_menu
 from src.download import run_download_menu
 from src.loading import clear_screen
-from src.logo import show_logo 
+from src.logo import show_logo, show_intro
+
 
 def main():
+    show_intro()
+    clear_screen()
 
     while True:
         clear_screen()
