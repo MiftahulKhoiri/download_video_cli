@@ -85,7 +85,7 @@ def _decrypt_reveal(lines, duration=15.0, frame_delay=0.060,
     sys.stdout.flush()
 
 
-def show_intro(duration=15.0):
+def show_intro(duration=5):
     """
     Splash screen animasi, dipanggil SEKALI di awal program (main.py) sebelum
     masuk ke menu utama. Total durasi kira-kira duration + 1.5 detik.
@@ -99,9 +99,9 @@ def show_intro(duration=15.0):
         _decrypt_reveal(_INTRO_BLOCK, duration=duration)
 
         print(f"\n{Fore.GREEN}🔓 Akses diterima.{Style.RESET_ALL}")
-        time.sleep(0.50)
+        time.sleep(3)
         print(f"{Fore.CYAN}⏳ Memuat aplikasi...{Style.RESET_ALL}")
-        time.sleep(0.50)
+        time.sleep(3)
     except KeyboardInterrupt:
         print()  # biar prompt berikutnya nggak nempel di baris animasi
 
