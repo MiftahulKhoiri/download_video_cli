@@ -99,9 +99,9 @@ def show_intro(duration=15.0):
         _decrypt_reveal(_INTRO_BLOCK, duration=duration)
 
         print(f"\n{Fore.GREEN}🔓 Akses diterima.{Style.RESET_ALL}")
-        time.sleep(0.6)
+        time.sleep(0.50)
         print(f"{Fore.CYAN}⏳ Memuat aplikasi...{Style.RESET_ALL}")
-        time.sleep(0.6)
+        time.sleep(0.50)
     except KeyboardInterrupt:
         print()  # biar prompt berikutnya nggak nempel di baris animasi
 
