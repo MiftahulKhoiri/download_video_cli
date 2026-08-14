@@ -36,7 +36,7 @@ _INTRO_BLOCK = _LOGO_LINES + ["", _TAGLINE]
 _SCRAMBLE_CHARS = "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789!@#$%^&*<>/\\|=+-_"
 
 
-def _decrypt_reveal(lines, duration=15.0, frame_delay=0.045,
+def _decrypt_reveal(lines, duration=15.0, frame_delay=0.04,
                      scramble_color=Fore.GREEN, reveal_color=Fore.CYAN):
     """
     Render 'lines' berulang di posisi yang sama (cursor naik tiap frame).
