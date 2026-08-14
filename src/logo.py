@@ -1,4 +1,5 @@
 # src/logo.py
+import random
 import sys
 import time
 from colorama import init, Fore, Style, Cursor
@@ -18,7 +19,7 @@ def show_logo():
     print()
 
 
-# ---------- Logo pembuka animasi (splash screen) ----------
+# ---------- Logo pembuka animasi: efek decrypt/hacker ----------
 
 _LOGO_LINES = [
     " __   _____   ___          _",
@@ -27,90 +28,83 @@ _LOGO_LINES = [
     "   \\_/ /___| |___/|_|_|_||____|",
 ]
 
-_TAGLINE = "🎬 YouTube / X Video & MP3 Downloader 🎵"
+_TAGLINE = "YouTube / X Video & MP3 Downloader"
 
-# Urutan warna buat efek gelombang -- ini yang bikin kelihatan "mengalir" tiap frame.
-_RAINBOW = [Fore.RED, Fore.YELLOW, Fore.GREEN, Fore.CYAN, Fore.BLUE, Fore.MAGENTA]
+_INTRO_BLOCK = _LOGO_LINES + ["", _TAGLINE]
 
-_BLOCK_HEIGHT = len(_LOGO_LINES) + 2  # logo + 1 baris kosong + tagline
-
-
-def _wave_color(position, offset):
-    return _RAINBOW[(position + offset) % len(_RAINBOW)]
+# Karakter acak yang dipakai buat efek "belum ke-decrypt"
+_SCRAMBLE_CHARS = "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789!@#$%^&*<>/\\|=+-_"
 
 
-def _colorize_line(text, row_seed, frame_offset):
-    """Warnai tiap karakter non-spasi sesuai posisi + waktu, biar warnanya kelihatan bergerak."""
-    out = []
-    for col, ch in enumerate(text):
-        if ch == " ":
-            out.append(ch)
-        else:
-            out.append(f"{_wave_color(col + row_seed, frame_offset)}{ch}{Style.RESET_ALL}")
-    return "".join(out)
-
-
-def _typewriter(lines, row_seed_start=0, delay=0.03):
-    """Tampilkan baris demi baris, karakter demi karakter, kesan 'diketik'."""
-    for i, line in enumerate(lines):
-        buffer = ""
-        for ch in line:
-            buffer += ch
-            color = _wave_color(len(buffer), row_seed_start + i)
-            sys.stdout.write(f"\r{color}{buffer}{Style.RESET_ALL}\x1b[K")
-            sys.stdout.flush()
-            time.sleep(delay)
-        print()
-
-
-def _animate_wave(seconds):
+def _decrypt_reveal(lines, duration=9.0, frame_delay=0.045,
+                     scramble_color=Fore.GREEN, reveal_color=Fore.CYAN):
     """
-    Render ulang logo + tagline di posisi yang sama (cursor naik tiap frame)
-    dengan warna yang terus bergeser, sampai durasi habis.
+    Render 'lines' berulang di posisi yang sama (cursor naik tiap frame).
+    Tiap karakter non-spasi mulai sebagai simbol acak, lalu satu-satu
+    di-'lock' jadi karakter asli secara acak sampai semua ke-reveal.
     """
-    start = time.time()
-    frame = 0
+    positions = [(r, c) for r, line in enumerate(lines) for c, ch in enumerate(line) if ch != " "]
+    random.shuffle(positions)
 
-    while time.time() - start < seconds:
-        for row, line in enumerate(_LOGO_LINES):
-            sys.stdout.write(_colorize_line(line, row * 3, frame) + "\x1b[K\n")
-        sys.stdout.write("\x1b[K\n")
-        sys.stdout.write(_colorize_line(_TAGLINE, 0, frame + 3) + "\x1b[K\n")
+    total_frames = max(1, int(duration / frame_delay))
+    batch_size = max(1, -(-len(positions) // total_frames))  # ceil division
+
+    revealed = [[False] * len(line) for line in lines]
+    idx = 0
+
+    def render():
+        out = []
+        for row, line in enumerate(lines):
+            chars = []
+            for col, ch in enumerate(line):
+                if ch == " ":
+                    chars.append(" ")
+                elif revealed[row][col]:
+                    chars.append(f"{reveal_color}{ch}{Style.RESET_ALL}")
+                else:
+                    chars.append(f"{scramble_color}{random.choice(_SCRAMBLE_CHARS)}{Style.RESET_ALL}")
+            out.append("".join(chars))
+        return out
+
+    while idx < len(positions):
+        for _ in range(batch_size):
+            if idx >= len(positions):
+                break
+            r, c = positions[idx]
+            revealed[r][c] = True
+            idx += 1
+
+        for line in render():
+            sys.stdout.write(line + "\x1b[K\n")
         sys.stdout.flush()
+        time.sleep(frame_delay)
+        sys.stdout.write(Cursor.UP(len(lines)))
 
-        time.sleep(0.08)
-        frame += 1
-        sys.stdout.write(Cursor.UP(_BLOCK_HEIGHT))
-
-    # Bersihkan blok animasi biar nggak numpuk sama tampilan berikutnya
-    for _ in range(_BLOCK_HEIGHT):
-        sys.stdout.write("\x1b[K\n")
-    sys.stdout.write(Cursor.UP(_BLOCK_HEIGHT))
+    for line in render():
+        sys.stdout.write(line + "\x1b[K\n")
     sys.stdout.flush()
 
 
-def show_intro(wave_seconds=8):
+def show_intro(duration=9.0):
     """
     Splash screen animasi, dipanggil SEKALI di awal program (main.py) sebelum
-    masuk ke menu utama. Total durasi kira-kira 12-13 detik.
+    masuk ke menu utama. Total durasi kira-kira duration + 1.5 detik.
     Tekan Ctrl+C buat langsung lewati kalau nggak mau nunggu.
     """
     try:
         clear_screen()
         print("\n" * 2)
-        _typewriter(_LOGO_LINES)
-        print()
-        _typewriter([_TAGLINE], row_seed_start=len(_LOGO_LINES), delay=0.02)
-        time.sleep(0.4)
+        print(f"{Fore.GREEN}[SYSTEM] Mendekripsi data...{Style.RESET_ALL}\n")
 
-        sys.stdout.write(Cursor.UP(_BLOCK_HEIGHT))
-        _animate_wave(wave_seconds)
+        _decrypt_reveal(_INTRO_BLOCK, duration=duration)
 
-        print(f"\n{Fore.CYAN}⏳ Memuat aplikasi...{Style.RESET_ALL}")
+        print(f"\n{Fore.GREEN}🔓 Akses diterima.{Style.RESET_ALL}")
+        time.sleep(0.6)
+        print(f"{Fore.CYAN}⏳ Memuat aplikasi...{Style.RESET_ALL}")
         time.sleep(0.6)
     except KeyboardInterrupt:
         print()  # biar prompt berikutnya nggak nempel di baris animasi
 
 
 if __name__ == "__main__":
-    show_logo()
+    show_intro()
