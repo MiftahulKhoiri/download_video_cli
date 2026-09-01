@@ -28,7 +28,7 @@ _LOGO_LINES = [
     "   \\_/ /___| |___/|_|_|_||____|",
 ]
 
-_TAGLINE = "YouTube / X Video & MP3 Downloader"
+_TAGLINE = " Video & MP3 Downloader"
 
 _INTRO_BLOCK = _LOGO_LINES + ["", _TAGLINE]
 
