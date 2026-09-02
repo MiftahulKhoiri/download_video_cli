@@ -36,34 +36,93 @@ def save_history(data):
         return False
 
 
-def is_already_downloaded(title, resolution=None):
+def is_already_downloaded(title, resolution=None, video_id=None):
     """
-    Cek apakah judul + resolusi/format tertentu sudah pernah diunduh (case-insensitive).
-    resolution=None -> cocokkan judul saja (perilaku lama, buat caller yang nggak
-    peduli resolusi/format spesifik).
+    Cek apakah video/audio ini sudah pernah diunduh.
+
+    Prioritas pencocokan:
+    1. Kalau video_id diberikan DAN item riwayat punya "id" -> cocokkan by id
+       (lebih akurat, tahan terhadap judul yang berubah/typo/mirip).
+    2. Kalau tidak, fallback ke judul (case-insensitive) seperti perilaku lama.
+
+    resolution=None -> cocokkan judul/id saja, abaikan resolusi.
     """
     history = load_history()
     title_norm = title.strip().lower()
+
     for item in history:
-        if item.get("title", "").strip().lower() != title_norm:
-            continue
+        item_id = item.get("id")
+        if video_id and item_id:
+            if item_id != video_id:
+                continue
+        else:
+            if item.get("title", "").strip().lower() != title_norm:
+                continue
+
         if resolution is None:
             return True, item
         if item.get("resolution", "").strip().lower() == resolution.strip().lower():
             return True, item
+
     return False, None
 
 
-def save_file_record(title, filename, url, resolution):
+def save_file_record(title, filename, url, resolution, video_id=None):
     """Simpan catatan hasil download ke download.json."""
     history = load_history()
-    already, _ = is_already_downloaded(title, resolution)
+    already, _ = is_already_downloaded(title, resolution, video_id=video_id)
     if already:
         return False
     history.append({
+        "id": video_id,
         "title": title,
         "filename": filename,
         "url": url,
         "resolution": resolution,
     })
     return save_history(history)
+
+
+def delete_entry(index, remove_file=False):
+    """
+    Hapus satu entri riwayat berdasarkan nomor urut (1-based, sesuai tampilan dashboard).
+    Kalau remove_file=True, file fisiknya juga dihapus dari disk (kalau ada).
+    Return (True, item_yang_dihapus) atau (False, None) kalau index tidak valid.
+    """
+    history = load_history()
+    if not (1 <= index <= len(history)):
+        return False, None
+
+    item = history.pop(index - 1)
+
+    if remove_file:
+        filename = item.get("filename")
+        if filename and os.path.exists(filename):
+            try:
+                os.remove(filename)
+            except OSError as e:
+                print(f"⚠️  Gagal menghapus file {filename}: {e}")
+
+    save_history(history)
+    return True, item
+
+
+def clear_history(remove_files=False):
+    """
+    Hapus SEMUA riwayat download. Kalau remove_files=True, semua file fisiknya
+    juga ikut dihapus dari disk. Return jumlah entri yang dihapus.
+    """
+    history = load_history()
+    count = len(history)
+
+    if remove_files:
+        for item in history:
+            filename = item.get("filename")
+            if filename and os.path.exists(filename):
+                try:
+                    os.remove(filename)
+                except OSError as e:
+                    print(f"⚠️  Gagal menghapus file {filename}: {e}")
+
+    save_history([])
+    return count
