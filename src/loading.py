@@ -61,6 +61,23 @@ def reset_progress():
     _first_line = True
 
 
+_print_lock = threading.Lock()
+
+
+def safe_print(msg=""):
+    """Print yang aman dipanggil dari banyak thread sekaligus (dipakai pas mode download paralel)."""
+    with _print_lock:
+        print(msg)
+
+
+def noop_hook(d):
+    """
+    Progress/postprocessor hook kosong. Dipakai pas mode paralel biar progress bar
+    per-karakter dari beberapa thread nggak saling tumpang tindih di terminal.
+    """
+    pass
+
+
 def progress_hook(d):
     global _first_line
 
