@@ -1,10 +1,73 @@
+import argparse
+
 from src.dashboard import run_dashboard_menu
-from src.download import run_download_menu
+from src.download import (
+    run_download_menu, expand_playlist, download_many, download_audio_many,
+)
 from src.loading import clear_screen
 from src.logo import show_logo, show_intro
+from src.config import load_config, run_settings_menu
+
+
+def build_arg_parser():
+    parser = argparse.ArgumentParser(
+        description="YouTube/X Video & MP3 Downloader — mode non-interaktif (CLI)."
+    )
+    parser.add_argument("--url", action="append", dest="urls", metavar="URL",
+                         help="URL video/playlist yang mau diunduh. Bisa dipakai berkali-kali.")
+    parser.add_argument("--res", type=int, default=None,
+                         help="Resolusi target dalam angka (misal 720). Kosongkan buat kualitas terbaik.")
+    parser.add_argument("--audio", action="store_true",
+                         help="Unduh sebagai MP3, bukan video.")
+    parser.add_argument("--quality", default=None,
+                         help="Kualitas MP3 dalam kbps (128/192/256/320), cuma berlaku dengan --audio.")
+    parser.add_argument("--parallel", type=int, default=None,
+                         help="Jumlah download paralel (override pengaturan tersimpan).")
+    parser.add_argument("--retry", type=int, default=None,
+                         help="Jumlah percobaan ulang kalau gagal (override pengaturan tersimpan).")
+    parser.add_argument("--sub", default=None, metavar="LANG1,LANG2",
+                         help="Kode bahasa subtitle yang mau diunduh, pisah koma (misal id,en).")
+    parser.add_argument("--cookies", default=None, metavar="FILE",
+                         help="Path ke file cookies.txt (override pengaturan tersimpan).")
+    return parser
+
+
+def run_cli(args):
+    config = load_config()
+    if args.parallel is not None:
+        config["parallel_workers"] = args.parallel
+    if args.retry is not None:
+        config["retry_count"] = args.retry
+    if args.cookies is not None:
+        config["cookies_file"] = args.cookies
+    if args.quality is not None:
+        config["mp3_quality"] = args.quality
+    if args.sub is not None:
+        config["subtitle_langs"] = [x.strip() for x in args.sub.split(",") if x.strip()]
+
+    all_urls = []
+    for u in args.urls:
+        all_urls.extend(expand_playlist(u, cookies_file=config.get("cookies_file")))
+
+    if not all_urls:
+        print("Tidak ada URL yang bisa diproses.")
+        return
+
+    if args.audio:
+        download_audio_many(all_urls, config=config)
+    else:
+        label = f"{args.res}p" if args.res else "terbaik"
+        download_many(all_urls, target_height=args.res, resolution_label=label, config=config)
 
 
 def main():
+    parser = build_arg_parser()
+    args = parser.parse_args()
+
+    if args.urls:
+        run_cli(args)
+        return
+
     show_intro()
     clear_screen()
 
@@ -13,6 +76,7 @@ def main():
         show_logo()
         print("1. Dashboard")
         print("2. Download video")
+        print("3. Pengaturan")
         print("0. Keluar")
         pilihan = input("Pilih menu: ").strip()
 
@@ -20,6 +84,8 @@ def main():
             run_dashboard_menu()
         elif pilihan == "2":
             run_download_menu()
+        elif pilihan == "3":
+            run_settings_menu()
         elif pilihan == "0":
             print("Sampai jumpa!")
             break
