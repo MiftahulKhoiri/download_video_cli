@@ -1,39 +1,64 @@
-# YouTube/X Video Downloader
+# YouTube/X Video & Audio Downloader
 
-Script Python3 untuk mengunduh video dari **YouTube** dan **X (Twitter)** dengan pilihan resolusi video, mendukung download satu video maupun banyak video sekaligus. Riwayat download dicatat otomatis agar tidak ada duplikasi.
+Script Python3 untuk mengunduh video dan audio dari **YouTube** dan **X (Twitter)** — juga situs lain yang didukung `yt-dlp` (TikTok, Instagram, Facebook, dll, tinggal masukkan URL-nya). Mendukung download satu item maupun banyak sekaligus (termasuk playlist), berbagai format audio, potong durasi, riwayat otomatis anti-duplikat, mode interaktif maupun CLI non-interaktif, dan pengaturan yang bisa disimpan.
 
 ## ✨ Fitur
 
-- Download video dari YouTube dan X (Twitter)
-- Pilih resolusi video sebelum mengunduh (atau otomatis kualitas terbaik)
-- Mode download 1 video atau banyak video (batch)
-- Progress bar realtime saat mengunduh
-- Riwayat download tersimpan di `download/download.json`
-- Deteksi otomatis jika video sudah pernah diunduh (mencegah duplikat)
-- Dashboard untuk melihat riwayat semua video yang sudah diunduh
+**Download**
+- Video dari YouTube, X (Twitter), dan situs lain yang didukung `yt-dlp`
+- Audio dalam **5 format**: MP3, M4A, OPUS, FLAC, WAV — kualitas bisa dipilih (128/192/256/320 kbps untuk format lossy)
+- **Playlist otomatis di-expand** jadi daftar video/audio individual
+- **Potong ke rentang waktu tertentu** (mis. cuma ambil menit 1:30–2:45), tanpa unduh video penuh
+- Pilih resolusi video sebelum mengunduh (atau otomatis kualitas terbaik / default tersimpan)
+- Mode 1 item, banyak (batch, bisa ketik manual atau **import dari file `.txt`**), atau **download paralel**
+- **Retry otomatis** kalau satu download gagal
+- **Subtitle/caption** opsional (manual + auto-generated), bisa multi-bahasa
+- **Embed thumbnail + metadata** (judul dll) otomatis ke file audio
+- Batas kecepatan download (rate limit) opsional
+
+**Organisasi & riwayat**
+- Riwayat tersimpan di `download/download.json`, deteksi duplikat pakai **ID video** (bukan cuma judul)
+- Dashboard buat lihat riwayat, **hapus satu entri atau semua riwayat** (opsional sekalian hapus filenya)
+- **Auto-organize folder hasil download**: rata (default), per channel, atau per tanggal upload
+- Log aktivitas & error otomatis ke `download/app.log` — berguna kalau dijalanin unattended/cron
+
+**Kenyamanan & Termux**
+- **Cek & update yt-dlp** — notice otomatis pas start kalau ketinggalan versi + tombol update di menu Pengaturan (yt-dlp yang outdated adalah penyebab paling umum error 403)
+- Notifikasi Android via Termux:API setelah download selesai
+- Opsi **salin otomatis ke `~/storage/downloads`** biar file muncul di Galeri/File Manager Android
+- Ctrl+C ditangani rapi — file `.part`/`.ytdl` sisa otomatis dibersihkan, bukan nyangkut jadi sampah
+- **Mode CLI non-interaktif** (`--url ...` / `--url-file ...`) buat dipanggil dari script/automation
+- Dukungan file cookies buat konten yang butuh login
 - Folder `download/` dibuat otomatis jika belum ada
 
 ## 📁 Struktur Proyek
 
 ```
 project/
-├── main.py                  # Menu utama (Dashboard, Download, Exit)
+├── main.py                  # Menu utama + mode CLI non-interaktif
 ├── requirements.txt
 ├── README.md
+├── config.json                # Dibuat otomatis saat pengaturan pertama kali diubah
 ├── src/
 │   ├── __init__.py
-│   ├── dashboard.py         # Logika tampilan dashboard/riwayat
-│   ├── loading.py           # Progress bar realtime saat download
-│   ├── download.py          # Logika download (single & banyak)
-│   └── manager.py           # Kelola folder & file download.json
-└── download/                 # Dibuat otomatis, berisi hasil unduhan
-    └── download.json         # Dibuat otomatis, riwayat download
+│   ├── dashboard.py         # Tampilan dashboard/riwayat + hapus entri
+│   ├── loading.py           # Progress bar, spinner, print thread-safe
+│   ├── download.py          # Logika download video & audio (single/batch/paralel/retry/potong durasi)
+│   ├── manager.py           # Kelola folder & file download.json (riwayat)
+│   ├── config.py            # Baca/simpan pengaturan (config.json) + menu Pengaturan
+│   ├── updater.py           # Cek & update yt-dlp
+│   ├── logger.py            # Logger ke download/app.log
+│   └── notify.py            # Notifikasi Android via Termux:API
+└── download/                  # Dibuat otomatis, berisi hasil unduhan
+    ├── download.json          # Dibuat otomatis, riwayat download
+    └── app.log                 # Dibuat otomatis, log aktivitas & error
 ```
 
 ## 🔧 Persyaratan
 
 - Python 3.8 atau lebih baru
-- [ffmpeg](https://ffmpeg.org/) (untuk menggabungkan video + audio)
+- [ffmpeg](https://ffmpeg.org/) (untuk menggabungkan video+audio, convert format audio, dan embed thumbnail/metadata)
+- (Opsional, Termux saja) `termux-api` untuk notifikasi Android, dan `termux-setup-storage` untuk fitur salin ke shared storage
 
 ## 📦 Instalasi
 
@@ -65,6 +90,18 @@ project/
    ffmpeg -version
    ```
 
+6. (Opsional, Termux) Aktifkan notifikasi selesai-download:
+   ```bash
+   pkg install termux-api
+   ```
+   Lalu install juga app **Termux:API** dari F-Droid/Play Store. Kalau tidak diinstall, notifikasi otomatis di-skip tanpa error.
+
+7. (Opsional, Termux) Aktifkan fitur salin ke folder Download Android:
+   ```bash
+   termux-setup-storage
+   ```
+   Izinkan akses storage saat diminta. Ini bikin folder `~/storage/downloads` tersedia (dipakai kalau opsi "Salin ke storage Termux" di Pengaturan diaktifkan).
+
 ## 🚀 Cara Menjalankan
 
 Jalankan dari folder **root** proyek (bukan dari dalam folder `src`), karena `main.py` mengimpor modul dengan `from src.xxx import ...`:
@@ -73,89 +110,129 @@ Jalankan dari folder **root** proyek (bukan dari dalam folder `src`), karena `ma
 python3 main.py
 ```
 
+Pas start, aplikasi otomatis cek singkat apakah yt-dlp kamu ketinggalan versi (nggak blocking, aman kalau offline) — kasih notice satu baris kalau perlu update.
+
 ## 🖥️ Menu Utama
 
-Setelah dijalankan, akan muncul menu:
-
 ```
-===== YOUTUBE/X DOWNLOADER =====
 1. Dashboard
 2. Download video
-3. Keluar
+3. Pengaturan
+0. Keluar
 ```
 
 ### 1. Dashboard
-Menampilkan daftar semua video yang pernah diunduh, beserta resolusi, nama file, dan URL asalnya.
+Menampilkan daftar semua video/audio yang pernah diunduh (judul, resolusi/format, file, URL). Dari sini juga bisa:
+- **Hapus satu entri** (opsional sekalian hapus file fisiknya)
+- **Hapus semua riwayat** (opsional sekalian hapus semua file)
 
 ### 2. Download video
-Akan muncul submenu:
 ```
-1. Download 1 video
-2. Download banyak video
+1. Download video (1)
+2. Download video (banyak)
+3. Download audio (1)
+4. Download audio (banyak)
+```
+- Semua opsi otomatis mendukung playlist (URL playlist akan di-expand jadi daftar video/audio).
+- Opsi "audio" menawarkan pilihan format (MP3/M4A/OPUS/FLAC/WAV) dan kualitas (khusus format lossy).
+- Opsi "1 item" (video maupun audio) menawarkan pemotongan ke rentang waktu tertentu.
+- Opsi "banyak" menawarkan sumber URL: ketik manual atau import dari file `.txt` (satu URL per baris, baris berawalan `#` diabaikan).
+- Kalau punya resolusi/format/kualitas default di Pengaturan, akan dipakai otomatis (dengan opsi override manual kalau nggak tersedia untuk video tersebut).
+
+### 3. Pengaturan
+```
+ 1. Resolusi default         (kosongkan = selalu tanya tiap download)
+ 2. Format audio default     (mp3/m4a/opus/flac/wav)
+ 3. Kualitas audio default   (128/192/256/320 kbps, cuma berlaku format lossy)
+ 4. Embed thumbnail/metadata (aktif/nonaktif)
+ 5. Subtitle default         (kode bahasa, misal id,en — kosongkan = nonaktif)
+ 6. Jumlah download paralel  (1 = berurutan/default, aman buat koneksi lambat)
+ 7. Jumlah percobaan ulang   (retry otomatis kalau gagal)
+ 8. File cookies             (path ke cookies.txt, buat konten yang butuh login)
+ 9. Notifikasi Termux        (aktif/nonaktif)
+10. Susun folder hasil       (none/channel/date)
+11. Salin ke storage Termux  (aktif/nonaktif, butuh termux-setup-storage)
+12. Batas kecepatan unduh    (misal 2M, 500K; kosongkan = tanpa batas)
+13. Cek & update yt-dlp      (cek versi + update langsung dari menu)
+```
+Semua pengaturan disimpan di `config.json` dan langsung dipakai di download berikutnya.
+
+### 0. Keluar
+Menutup program. Ctrl+C di titik mana pun juga keluar dengan rapi (bukan traceback error).
+
+## ⚡ Mode CLI (non-interaktif)
+
+Berguna buat dipanggil dari script, cron, atau shortcut. Kalau `--url` atau `--url-file` diberikan, program langsung jalan tanpa masuk ke menu interaktif.
+
+```bash
+# Download 1 video, resolusi 720p
+python3 main.py --url "https://www.youtube.com/watch?v=xxxxxxx" --res 720
+
+# Download beberapa video/playlist sekaligus, paralel 3, retry 2x
+python3 main.py --url "URL_1" --url "URL_2_PLAYLIST" --parallel 3 --retry 2
+
+# Download daftar URL dari file
+python3 main.py --url-file daftar_url.txt --parallel 2
+
+# Download sebagai audio FLAC (lossless)
+python3 main.py --url "URL" --audio --audio-format flac
+
+# Download sebagai MP3 kualitas 320kbps
+python3 main.py --url "URL" --audio --audio-format mp3 --quality 320
+
+# Download dengan subtitle Indonesia & Inggris
+python3 main.py --url "URL" --sub id,en
+
+# Batas kecepatan 2MB/s, pakai file cookies
+python3 main.py --url "URL" --cookies cookies.txt --rate-limit 2M
 ```
 
-**Download 1 video:**
-1. Masukkan URL video (YouTube atau X)
-2. Pilih resolusi dari daftar yang ditampilkan (atau pilih opsi "Terbaik")
-3. Video akan diunduh ke folder `download/`
-
-**Download banyak video:**
-1. Masukkan URL satu per satu, tekan Enter setiap selesai satu URL
-2. Ketik `selesai` jika sudah selesai memasukkan semua URL
-3. Pilih resolusi (berlaku untuk semua video dalam batch)
-4. Semua video akan diunduh berurutan, dengan ringkasan hasil di akhir (berhasil/dilewati/gagal)
-
-### 3. Keluar
-Menutup program.
-
-## 📝 Contoh Penggunaan
-
-```
-===== YOUTUBE/X DOWNLOADER =====
-1. Dashboard
-2. Download video
-3. Keluar
-Pilih menu: 2
-
-1. Download 1 video
-2. Download banyak video
-Pilih opsi: 1
-Masukkan URL video: https://www.youtube.com/watch?v=xxxxxxx
-
-Resolusi tersedia:
-  [0] 1080p (mp4)
-  [1] 720p (mp4)
-  [2] 480p (mp4)
-  [3] Terbaik (auto)
-Pilih nomor resolusi: 1
-
-⬇️  Judul Video.mp4 | 45.2% @ 3.1MiB/s ETA 00:12
-🔧 Memproses/menggabungkan file...
-
-✅ Selesai! 'Judul Video' berhasil diunduh.
-```
+Semua flag opsional selain `--url`/`--url-file`; kalau tidak diisi, nilai dari `config.json` (menu Pengaturan) yang dipakai sebagai default. Mode CLI tidak menawarkan potong durasi atau import subfolder interaktif — untuk itu pakai mode menu.
 
 ## 📄 Format `download.json`
-
-Riwayat download disimpan otomatis dengan struktur:
 
 ```json
 [
   {
+    "id": "xxxxxxx",
     "title": "Judul Video",
     "filename": "download/Judul Video.mp4",
     "url": "https://www.youtube.com/watch?v=xxxxxxx",
     "resolution": "720p"
+  },
+  {
+    "id": "yyyyyyy",
+    "title": "Judul Audio",
+    "filename": "download/Judul Audio.flac",
+    "url": "https://www.youtube.com/watch?v=yyyyyyy",
+    "resolution": "flac"
   }
 ]
 ```
+- `id` adalah ID video dari platform asal (dipakai buat deteksi duplikat yang lebih akurat daripada judul saja). Entri lama tetap kompatibel (field `id`-nya `null`, fallback ke pencocokan judul).
+- `resolution` untuk audio berisi `"{format}-{kualitas}kbps"` (mis. `"mp3-192kbps"`) untuk format lossy, atau cuma nama formatnya (mis. `"flac"`) untuk format lossless — supaya kualitas/format berbeda nggak dianggap duplikat.
+
+## 📱 Fitur Khusus Termux
+
+| Fitur | Perintah setup |
+|---|---|
+| Notifikasi selesai-download | `pkg install termux-api` + install app Termux:API |
+| Salin hasil ke Galeri/File Manager Android | `termux-setup-storage`, lalu aktifkan di Pengaturan > 11 |
+
+Kedua fitur ini opsional dan otomatis di-skip diam-diam kalau perintah/izinnya belum ada — tidak bikin aplikasi error di sistem non-Termux.
+
+## 📝 Log
+
+Aktivitas (mulai/selesai unduhan, retry, error) dicatat ke `download/app.log` dengan timestamp. File ini murni buat keperluan lacak/debug (terutama kalau dijalanin unattended lewat cron) — tidak pernah ditampilkan ke layar. Hapus manual kalau sudah kebesaran, tidak ada rotasi otomatis.
 
 ## ⚠️ Catatan & Batasan
 
-- Video dari X/Twitter harus berasal dari post **publik** (bukan akun private/protected).
-- Deteksi video duplikat berdasarkan **judul video** (case-insensitive), bukan URL — jadi video dengan judul sama dari sumber berbeda akan dianggap sudah ada.
-- Ketersediaan resolusi tergantung pada apa yang disediakan oleh platform untuk video tersebut; tidak semua video punya semua resolusi.
-- Kecepatan download tergantung koneksi internet dan pembatasan dari pihak YouTube/X.
+- Video dari X/Twitter (dan platform lain) harus berasal dari post **publik**, kecuali sudah pakai file cookies buat akun yang login.
+- Deteksi duplikat memakai **ID video** kalau tersedia, fallback ke judul (case-insensitive) kalau tidak.
+- Ketersediaan resolusi/subtitle/format tergantung pada apa yang disediakan platform untuk video tersebut.
+- Embed thumbnail tidak berlaku untuk format WAV (keterbatasan format, bukan bug).
+- Mode paralel mengunduh beberapa video sekaligus — pertimbangkan kecepatan koneksi, jangan set terlalu tinggi di jaringan yang lambat/terbatas (misal seluler). Progress bar realtime otomatis nonaktif di mode ini (diganti log ringkas per video) biar output beberapa thread nggak tumpang tindih.
+- Potong durasi & pemilihan subfolder interaktif cuma tersedia buat download 1 item (bukan mode banyak/playlist/CLI).
 - Gunakan sesuai dengan [Ketentuan Layanan](https://www.youtube.com/t/terms) platform terkait dan hanya untuk konten yang Anda punya hak untuk mengunduhnya.
 
 ## 🛠️ Troubleshooting
@@ -163,9 +240,13 @@ Riwayat download disimpan otomatis dengan struktur:
 | Masalah | Solusi |
 |---|---|
 | `ModuleNotFoundError: No module named 'src'` | Jalankan `python3 main.py` dari folder root, bukan dari dalam `src/` |
-| Error saat merge video+audio | Pastikan `ffmpeg` sudah terinstall dan ada di PATH |
-| `yt_dlp` gagal ambil info video | Update ke versi terbaru: `pip install -U yt-dlp` |
-| Video tidak bisa diunduh dari X | Pastikan link post bersifat publik, bukan private/protected |
+| `HTTP Error 403: Forbidden` pas download | yt-dlp ketinggalan versi — update lewat menu Pengaturan > 13, atau manual: `pip install -U yt-dlp` |
+| Error saat merge video+audio / convert audio / embed thumbnail | Pastikan `ffmpeg` sudah terinstall dan ada di PATH |
+| Video tidak bisa diunduh | Pastikan link bersifat publik, atau pakai file cookies (Pengaturan > 8) buat konten privat |
+| Notifikasi Termux tidak muncul | Pastikan `pkg install termux-api` sudah dijalankan DAN app Termux:API sudah diinstall dari F-Droid/Play Store |
+| File tidak muncul di `~/storage/downloads` | Jalankan `termux-setup-storage` dulu, izinkan akses storage, baru aktifkan opsi di Pengaturan > 11 |
+| Progress bar berantakan di mode paralel | Ini normal — mode paralel sengaja memakai log ringkas per video, bukan progress bar realtime, biar output beberapa thread tidak tumpang tindih |
+| `pip install --upgrade yt-dlp` gagal dari menu Pengaturan | Beberapa sistem butuh izin tambahan — coba manual: `pip install -U yt-dlp --break-system-packages` (Termux/Debian modern) |
 
 ## 📜 Lisensi
 
