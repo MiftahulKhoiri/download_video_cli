@@ -1,10 +1,13 @@
 # src/download.py
+import glob
 import os
 import shutil
 import threading
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
 import yt_dlp
+from yt_dlp.utils import download_range_func
+
 from src.manager import ensure_download_folder, is_already_downloaded, save_file_record
 from src.loading import (
     progress_hook, postprocessor_hook, clear_screen, reset_progress,
@@ -12,6 +15,12 @@ from src.loading import (
 )
 from src.config import load_config
 from src import notify
+from src.logger import get_logger
+
+log = get_logger()
+
+LOSSY_AUDIO_FORMATS = {"mp3", "m4a", "opus"}
+TERMUX_SHARED_DOWNLOADS = os.path.expanduser("~/storage/downloads")
 
 
 def is_ffmpeg_available():
@@ -95,6 +104,59 @@ def _build_format_string(target_height):
     return f"bestvideo[height<={target_height}]+bestaudio/best[height<={target_height}]"
 
 
+def _build_outtmpl(base_folder, organize_by):
+    if organize_by == "channel":
+        return f"{base_folder}/%(uploader)s/%(title)s.%(ext)s"
+    if organize_by == "date":
+        return f"{base_folder}/%(upload_date>%Y-%m-%d)s/%(title)s.%(ext)s"
+    return f"{base_folder}/%(title)s.%(ext)s"
+
+
+def _parse_rate_limit(text):
+    """'500K' -> 512000, '2M' -> 2097152, angka polos -> byte/detik. None/invalid -> None."""
+    if not text:
+        return None
+    text = str(text).strip().upper()
+    multiplier = 1
+    if text.endswith("K"):
+        multiplier, text = 1024, text[:-1]
+    elif text.endswith("M"):
+        multiplier, text = 1024 * 1024, text[:-1]
+    try:
+        return int(float(text) * multiplier)
+    except ValueError:
+        return None
+
+
+def _parse_time_to_seconds(text):
+    parts = [int(p) for p in text.strip().split(":")]
+    seconds = 0
+    for p in parts:
+        seconds = seconds * 60 + p
+    return seconds
+
+
+def pilih_rentang_waktu():
+    """Tanya rentang waktu buat motong video/audio. Return (start, end) detik, atau None kalau full."""
+    print("\n✂️  Potong ke rentang waktu tertentu? (format MM:SS atau HH:MM:SS, kosongkan = unduh penuh)")
+    mulai = input("Mulai [Enter = dari awal / lewati]: ").strip()
+    if not mulai:
+        return None
+    try:
+        start_sec = _parse_time_to_seconds(mulai)
+    except ValueError:
+        print("Format waktu tidak valid, unduh penuh.")
+        return None
+    selesai = input("Selesai [Enter = sampai akhir]: ").strip()
+    end_sec = None
+    if selesai:
+        try:
+            end_sec = _parse_time_to_seconds(selesai)
+        except ValueError:
+            print("Format waktu selesai tidak valid, diabaikan (unduh sampai akhir).")
+    return (start_sec, end_sec)
+
+
 def _resolve_final_filepath(ydl, result_info, expected_ext=None):
     """
     Cari path file hasil download yang BENAR-BENAR ada di disk, bukan cuma tebakan
@@ -123,6 +185,19 @@ def _resolve_final_filepath(ydl, result_info, expected_ext=None):
     return candidates[0] if candidates else None
 
 
+def _cleanup_partial_files(folder):
+    """Hapus sisa file .part/.ytdl kalau download dibatalkan (Ctrl+C) di tengah jalan."""
+    try:
+        for pattern in ("*.part", "*.ytdl", "*.part-Frag*"):
+            for fp in glob.glob(os.path.join(folder, "**", pattern), recursive=True):
+                try:
+                    os.remove(fp)
+                except OSError:
+                    pass
+    except OSError:
+        pass
+
+
 def _run_download(ydl_opts, url, expected_ext, retries):
     """
     Jalankan extract_info(download=True) dengan retry otomatis kalau gagal.
@@ -136,11 +211,17 @@ def _run_download(ydl_opts, url, expected_ext, retries):
                 result = ydl.extract_info(url, download=True)
                 filename = _resolve_final_filepath(ydl, result, expected_ext=expected_ext)
             return result, filename
+        except KeyboardInterrupt:
+            _cleanup_partial_files(ensure_download_folder())
+            print("\n⏹️  Download dibatalkan (Ctrl+C), file sementara sudah dibersihkan.")
+            raise
         except Exception as e:
             last_exc = e
+            log.warning(f"Percobaan {attempt}/{retries} gagal untuk {url}: {e}")
             if attempt < retries:
                 print(f"⚠️  Percobaan {attempt}/{retries} gagal ({e}). Mencoba lagi...")
                 reset_progress()
+    log.error(f"Gagal unduh {url} setelah {retries} percobaan: {last_exc}")
     raise last_exc
 
 
@@ -150,11 +231,32 @@ def notify_download_done(title):
         notify.notify("Download selesai", f"'{title}' berhasil diunduh")
 
 
+def _copy_to_termux_shared_storage(filepath, printer):
+    if not filepath or not os.path.exists(filepath):
+        return
+    if not os.path.isdir(TERMUX_SHARED_DOWNLOADS):
+        printer("⚠️  Folder shared storage Termux belum siap. Jalankan 'termux-setup-storage' lalu izinkan akses storage.")
+        return
+    try:
+        dest = os.path.join(TERMUX_SHARED_DOWNLOADS, os.path.basename(filepath))
+        shutil.copy2(filepath, dest)
+        printer(f"📤 Disalin juga ke folder Download Android: {dest}")
+    except OSError as e:
+        printer(f"⚠️  Gagal menyalin ke shared storage: {e}")
+
+
 def download_single(url, target_height=None, resolution_label="terbaik", info=None,
-                     retries=1, subtitle_langs=None, cookies_file=None, quiet_progress=False):
+                     config=None, quiet_progress=False, section_range=None):
     """Fungsi download 1 video dari YouTube/X. quiet_progress=True dipakai pas mode paralel."""
+    config = config or load_config()
+    retries = max(1, int(config.get("retry_count", 1) or 1))
+    subtitle_langs = config.get("subtitle_langs") or []
+    cookies_file = config.get("cookies_file")
+    organize_by = config.get("organize_by", "none")
+    rate_limit = _parse_rate_limit(config.get("rate_limit"))
+    termux_shared = config.get("termux_shared_storage", False)
+
     folder = ensure_download_folder()
-    subtitle_langs = subtitle_langs or []
     printer = safe_print if quiet_progress else print
 
     if info is None:
@@ -165,6 +267,7 @@ def download_single(url, target_height=None, resolution_label="terbaik", info=No
     already, existing = is_already_downloaded(title, resolution_label, video_id=video_id)
     if already:
         printer(f"⚠️  '{title}' ({resolution_label}) sudah pernah diunduh sebelumnya (file: {existing.get('filename')}). Dilewati.")
+        log.info(f"Duplikat dilewati: {title} ({resolution_label})")
         return False
 
     if _video_needs_merge(info) and not is_ffmpeg_available():
@@ -177,7 +280,7 @@ def download_single(url, target_height=None, resolution_label="terbaik", info=No
 
     ydl_opts = {
         "format": _build_format_string(target_height),
-        "outtmpl": f"{folder}/%(title)s.%(ext)s",
+        "outtmpl": _build_outtmpl(folder, organize_by),
         "merge_output_format": "mp4",
         "continuedl": True,
         "progress_hooks": [noop_hook] if quiet_progress else [progress_hook],
@@ -195,14 +298,24 @@ def download_single(url, target_height=None, resolution_label="terbaik", info=No
         })
     if cookies_file:
         ydl_opts["cookiefile"] = cookies_file
+    if rate_limit:
+        ydl_opts["ratelimit"] = rate_limit
+    if section_range:
+        start_sec, end_sec = section_range
+        ydl_opts["download_ranges"] = download_range_func(None, [(start_sec, end_sec)])
+        ydl_opts["force_keyframes_at_cuts"] = True
 
     if quiet_progress:
         safe_print(f"⬇️  Mulai unduh: {title}")
+    log.info(f"Mulai unduh: {title} ({url}) [{resolution_label}]")
 
     result, filename = _run_download(ydl_opts, url, expected_ext="mp4", retries=retries)
 
     save_file_record(title, filename, url, resolution_label, video_id=video_id)
     printer(f"\n✅ Selesai! '{title}' berhasil diunduh.")
+    log.info(f"Selesai: {title} -> {filename}")
+    if termux_shared:
+        _copy_to_termux_shared_storage(filename, printer)
     notify_download_done(title)
     return True
 
@@ -211,9 +324,6 @@ def download_many(url_list, target_height=None, resolution_label="terbaik", firs
     """Fungsi download banyak video sekaligus (list URL). Jalan paralel kalau config parallel_workers > 1."""
     config = config or load_config()
     workers = max(1, int(config.get("parallel_workers", 1) or 1))
-    retries = max(1, int(config.get("retry_count", 1) or 1))
-    subtitle_langs = config.get("subtitle_langs") or []
-    cookies_file = config.get("cookies_file")
 
     hasil = {"berhasil": 0, "dilewati": 0, "gagal": 0}
 
@@ -224,8 +334,7 @@ def download_many(url_list, target_height=None, resolution_label="terbaik", firs
                 info = first_info if (i == 1 and first_info is not None) else None
                 sukses = download_single(
                     url, target_height=target_height, resolution_label=resolution_label,
-                    info=info, retries=retries, subtitle_langs=subtitle_langs,
-                    cookies_file=cookies_file, quiet_progress=False,
+                    info=info, config=config, quiet_progress=False,
                 )
                 hasil["berhasil" if sukses else "dilewati"] += 1
             except Exception as e:
@@ -237,8 +346,9 @@ def download_many(url_list, target_height=None, resolution_label="terbaik", firs
         with ThreadPoolExecutor(max_workers=workers) as executor:
             futures = {
                 executor.submit(
-                    download_single, url, target_height, resolution_label, None,
-                    retries, subtitle_langs, cookies_file, True,
+                    download_single, url,
+                    target_height=target_height, resolution_label=resolution_label,
+                    config=config, quiet_progress=True,
                 ): url
                 for url in url_list
             }
@@ -258,13 +368,30 @@ def download_many(url_list, target_height=None, resolution_label="terbaik", firs
     return hasil
 
 
-def download_audio_single(url, info=None, quality="192", retries=1, cookies_file=None, quiet_progress=False):
-    """Fungsi download 1 audio (MP3) dari YouTube/X."""
+def _audio_resolution_label(audio_format, quality):
+    if audio_format in LOSSY_AUDIO_FORMATS:
+        return f"{audio_format}-{quality}kbps"
+    return audio_format
+
+
+def download_audio_single(url, info=None, audio_format=None, quality=None, config=None,
+                           quiet_progress=False, section_range=None):
+    """Fungsi download 1 audio dari YouTube/X, format bisa mp3/m4a/opus/flac/wav."""
+    config = config or load_config()
+    audio_format = (audio_format or config.get("audio_format", "mp3")).lower()
+    quality = quality or config.get("mp3_quality", "192")
+    retries = max(1, int(config.get("retry_count", 1) or 1))
+    cookies_file = config.get("cookies_file")
+    organize_by = config.get("organize_by", "none")
+    rate_limit = _parse_rate_limit(config.get("rate_limit"))
+    embed_metadata = config.get("embed_metadata", True)
+    termux_shared = config.get("termux_shared_storage", False)
+
     folder = ensure_download_folder()
     printer = safe_print if quiet_progress else print
 
     if not is_ffmpeg_available():
-        printer("❌ Convert ke MP3 butuh ffmpeg, tapi belum terpasang. Dilewati.")
+        printer("❌ Convert audio butuh ffmpeg, tapi belum terpasang. Dilewati.")
         printer("    Install dulu: 'pkg install ffmpeg' (Termux) atau 'sudo apt install ffmpeg' (Linux).")
         return False
 
@@ -273,51 +400,64 @@ def download_audio_single(url, info=None, quality="192", retries=1, cookies_file
     title = info.get("title", "audio")
     video_id = info.get("id")
 
-    resolution_label = f"mp3-{quality}kbps"
+    resolution_label = _audio_resolution_label(audio_format, quality)
     already, existing = is_already_downloaded(title, resolution_label, video_id=video_id)
     if already:
         printer(f"⚠️  '{title}' ({resolution_label}) sudah pernah diunduh sebelumnya (file: {existing.get('filename')}). Dilewati.")
+        log.info(f"Duplikat dilewati: {title} ({resolution_label})")
         return False
 
     if not quiet_progress:
         reset_progress()
 
+    postprocessors = [{"key": "FFmpegExtractAudio", "preferredcodec": audio_format}]
+    if audio_format in LOSSY_AUDIO_FORMATS:
+        postprocessors[0]["preferredquality"] = str(quality)
+
     ydl_opts = {
         "format": "bestaudio/best",
-        "outtmpl": f"{folder}/%(title)s.%(ext)s",
+        "outtmpl": _build_outtmpl(folder, organize_by),
         "continuedl": True,
-        "postprocessors": [{
-            "key": "FFmpegExtractAudio",
-            "preferredcodec": "mp3",
-            "preferredquality": str(quality),
-        }],
+        "postprocessors": postprocessors,
         "progress_hooks": [noop_hook] if quiet_progress else [progress_hook],
         "postprocessor_hooks": [noop_hook] if quiet_progress else [postprocessor_hook],
         "quiet": True,
         "no_warnings": True,
         "noprogress": True,
     }
+    if embed_metadata:
+        ydl_opts["writethumbnail"] = True
+        ydl_opts["postprocessors"].append({"key": "FFmpegMetadata", "add_metadata": True})
+        if audio_format != "wav":  # wav nggak dukung embed thumbnail
+            ydl_opts["postprocessors"].append({"key": "EmbedThumbnail"})
     if cookies_file:
         ydl_opts["cookiefile"] = cookies_file
+    if rate_limit:
+        ydl_opts["ratelimit"] = rate_limit
+    if section_range:
+        start_sec, end_sec = section_range
+        ydl_opts["download_ranges"] = download_range_func(None, [(start_sec, end_sec)])
+        ydl_opts["force_keyframes_at_cuts"] = True
 
     if quiet_progress:
-        safe_print(f"⬇️  Mulai unduh (MP3): {title}")
+        safe_print(f"⬇️  Mulai unduh ({audio_format}): {title}")
+    log.info(f"Mulai unduh audio: {title} ({url}) [{resolution_label}]")
 
-    result, filename = _run_download(ydl_opts, url, expected_ext="mp3", retries=retries)
+    result, filename = _run_download(ydl_opts, url, expected_ext=audio_format, retries=retries)
 
     save_file_record(title, filename, url, resolution_label, video_id=video_id)
-    printer(f"\n✅ Selesai! '{title}' (MP3 {quality}kbps) berhasil diunduh.")
-    notify_download_done(f"{title} (MP3)")
+    printer(f"\n✅ Selesai! '{title}' ({resolution_label}) berhasil diunduh.")
+    log.info(f"Selesai: {title} -> {filename}")
+    if termux_shared:
+        _copy_to_termux_shared_storage(filename, printer)
+    notify_download_done(f"{title} ({audio_format})")
     return True
 
 
 def download_audio_many(url_list, first_info=None, config=None):
-    """Fungsi download banyak audio (MP3) sekaligus. Jalan paralel kalau config parallel_workers > 1."""
+    """Fungsi download banyak audio sekaligus. Jalan paralel kalau config parallel_workers > 1."""
     config = config or load_config()
     workers = max(1, int(config.get("parallel_workers", 1) or 1))
-    retries = max(1, int(config.get("retry_count", 1) or 1))
-    quality = config.get("mp3_quality", "192")
-    cookies_file = config.get("cookies_file")
 
     hasil = {"berhasil": 0, "dilewati": 0, "gagal": 0}
 
@@ -326,10 +466,7 @@ def download_audio_many(url_list, first_info=None, config=None):
             print(f"\n=== [{i}/{len(url_list)}] {url} ===")
             try:
                 info = first_info if (i == 1 and first_info is not None) else None
-                sukses = download_audio_single(
-                    url, info=info, quality=quality, retries=retries,
-                    cookies_file=cookies_file, quiet_progress=False,
-                )
+                sukses = download_audio_single(url, info=info, config=config, quiet_progress=False)
                 hasil["berhasil" if sukses else "dilewati"] += 1
             except Exception as e:
                 print(f"❌ Gagal mengunduh {url}: {e}")
@@ -340,7 +477,7 @@ def download_audio_many(url_list, first_info=None, config=None):
         with ThreadPoolExecutor(max_workers=workers) as executor:
             futures = {
                 executor.submit(
-                    download_audio_single, url, None, quality, retries, cookies_file, True,
+                    download_audio_single, url, config=config, quiet_progress=True,
                 ): url
                 for url in url_list
             }
@@ -392,21 +529,70 @@ def pilih_resolusi(video_formats, config=None):
     return video_formats[pilihan]["height"], f"{video_formats[pilihan]['height']}p"
 
 
-def pilih_kualitas_mp3(config=None):
+def pilih_format_audio(config=None):
     config = config or {}
+    default_format = config.get("audio_format", "mp3")
+    opsi = ["mp3", "m4a", "opus", "flac", "wav"]
+    print("\nFormat audio:")
+    for i, f in enumerate(opsi):
+        tanda = " (default)" if f == default_format else ""
+        print(f"  [{i}] {f}{tanda}")
+    pilihan = input(f"Pilih nomor format [Enter = default {default_format}]: ").strip()
+    if pilihan == "":
+        audio_format = default_format
+    elif pilihan.isdigit() and 0 <= int(pilihan) < len(opsi):
+        audio_format = opsi[int(pilihan)]
+    else:
+        print("Input tidak valid, pakai default.")
+        audio_format = default_format
+
+    if audio_format not in LOSSY_AUDIO_FORMATS:
+        return audio_format, None
+
     default_quality = str(config.get("mp3_quality", "192"))
-    opsi = ["128", "192", "256", "320"]
-    print("\nKualitas MP3 (kbps):")
-    for i, q in enumerate(opsi):
+    opsi_kualitas = ["128", "192", "256", "320"]
+    print("\nKualitas (kbps):")
+    for i, q in enumerate(opsi_kualitas):
         tanda = " (default)" if q == default_quality else ""
         print(f"  [{i}] {q} kbps{tanda}")
-    pilihan = input(f"Pilih nomor kualitas [Enter = default {default_quality}kbps]: ").strip()
-    if pilihan == "":
-        return default_quality
-    if pilihan.isdigit() and 0 <= int(pilihan) < len(opsi):
-        return opsi[int(pilihan)]
-    print("Input tidak valid, pakai default.")
-    return default_quality
+    pilihan_k = input(f"Pilih nomor kualitas [Enter = default {default_quality}kbps]: ").strip()
+    if pilihan_k == "":
+        quality = default_quality
+    elif pilihan_k.isdigit() and 0 <= int(pilihan_k) < len(opsi_kualitas):
+        quality = opsi_kualitas[int(pilihan_k)]
+    else:
+        print("Input tidak valid, pakai default.")
+        quality = default_quality
+
+    return audio_format, quality
+
+
+def _kumpulkan_urls_dari_input_atau_file():
+    print("Sumber URL:")
+    print("  [1] Ketik manual (satu per baris)")
+    print("  [2] Import dari file .txt (satu URL per baris)")
+    sumber = input("Pilih [1/2, Enter = 1]: ").strip()
+
+    if sumber == "2":
+        path = input("Path file .txt: ").strip()
+        try:
+            with open(path, "r", encoding="utf-8") as f:
+                urls = [line.strip() for line in f if line.strip() and not line.strip().startswith("#")]
+            print(f"📄 {len(urls)} URL dibaca dari {path}")
+            return urls
+        except OSError as e:
+            print(f"❌ Gagal membaca file: {e}")
+            return []
+
+    print("Masukkan URL satu per baris (video/playlist). Ketik 'selesai' jika sudah:")
+    urls_input = []
+    while True:
+        u = input("> ").strip()
+        if u.lower() == "selesai":
+            break
+        if u:
+            urls_input.append(u)
+    return urls_input
 
 
 def menu_download_1():
@@ -430,11 +616,10 @@ def menu_download_1():
         if len(urls) > 1:
             download_many(urls, target_height=height, resolution_label=label, first_info=info, config=config)
         else:
+            section_range = pilih_rentang_waktu()
             download_single(
                 urls[0], target_height=height, resolution_label=label, info=info,
-                retries=config.get("retry_count", 1),
-                subtitle_langs=config.get("subtitle_langs") or [],
-                cookies_file=config.get("cookies_file"),
+                config=config, section_range=section_range,
             )
     except Exception as e:
         print(f"❌ Terjadi kesalahan: {e}")
@@ -445,14 +630,7 @@ def menu_download_banyak():
     clear_screen()
     print("===== DOWNLOAD BANYAK VIDEO =====")
     config = load_config()
-    print("Masukkan URL satu per baris (video/playlist). Ketik 'selesai' jika sudah:")
-    urls_input = []
-    while True:
-        u = input("> ").strip()
-        if u.lower() == "selesai":
-            break
-        if u:
-            urls_input.append(u)
+    urls_input = _kumpulkan_urls_dari_input_atau_file()
     if not urls_input:
         print("Tidak ada URL yang dimasukkan.")
         input("\nTekan Enter untuk lanjut...")
@@ -482,9 +660,9 @@ def menu_download_banyak():
 
 def menu_download_mp3_1():
     clear_screen()
-    print("===== DOWNLOAD MP3 (1 AUDIO) =====")
+    print("===== DOWNLOAD AUDIO (1 ITEM) =====")
     if not is_ffmpeg_available():
-        print("❌ ffmpeg belum terpasang, convert ke MP3 nggak bisa jalan.")
+        print("❌ ffmpeg belum terpasang, convert audio nggak bisa jalan.")
         print("    Install dulu: 'pkg install ffmpeg' (Termux) atau 'sudo apt install ffmpeg' (Linux).")
         input("\nTekan Enter untuk lanjut...")
         return
@@ -496,14 +674,18 @@ def menu_download_mp3_1():
         return
     try:
         urls = expand_playlist(url, cookies_file=config.get("cookies_file"))
-        quality = pilih_kualitas_mp3(config)
+        audio_format, quality = pilih_format_audio(config)
         if len(urls) > 1:
             print(f"\n📋 Playlist terdeteksi: {len(urls)} audio akan diunduh.")
-            download_audio_many(urls, config={**config, "mp3_quality": quality})
+            cfg_override = {**config, "audio_format": audio_format}
+            if quality:
+                cfg_override["mp3_quality"] = quality
+            download_audio_many(urls, config=cfg_override)
         else:
+            section_range = pilih_rentang_waktu()
             download_audio_single(
-                urls[0], quality=quality, retries=config.get("retry_count", 1),
-                cookies_file=config.get("cookies_file"),
+                urls[0], audio_format=audio_format, quality=quality,
+                config=config, section_range=section_range,
             )
     except Exception as e:
         print(f"❌ Terjadi kesalahan: {e}")
@@ -512,21 +694,14 @@ def menu_download_mp3_1():
 
 def menu_download_mp3_banyak():
     clear_screen()
-    print("===== DOWNLOAD MP3 (BANYAK AUDIO) =====")
+    print("===== DOWNLOAD AUDIO (BANYAK ITEM) =====")
     if not is_ffmpeg_available():
-        print("❌ ffmpeg belum terpasang, convert ke MP3 nggak bisa jalan.")
+        print("❌ ffmpeg belum terpasang, convert audio nggak bisa jalan.")
         print("    Install dulu: 'pkg install ffmpeg' (Termux) atau 'sudo apt install ffmpeg' (Linux).")
         input("\nTekan Enter untuk lanjut...")
         return
     config = load_config()
-    print("Masukkan URL satu per baris (video/playlist). Ketik 'selesai' jika sudah:")
-    urls_input = []
-    while True:
-        u = input("> ").strip()
-        if u.lower() == "selesai":
-            break
-        if u:
-            urls_input.append(u)
+    urls_input = _kumpulkan_urls_dari_input_atau_file()
     if not urls_input:
         print("Tidak ada URL yang dimasukkan.")
         input("\nTekan Enter untuk lanjut...")
@@ -545,8 +720,11 @@ def menu_download_mp3_banyak():
             input("\nTekan Enter untuk lanjut...")
             return
 
-        quality = pilih_kualitas_mp3(config)
-        download_audio_many(urls, config={**config, "mp3_quality": quality})
+        audio_format, quality = pilih_format_audio(config)
+        cfg_override = {**config, "audio_format": audio_format}
+        if quality:
+            cfg_override["mp3_quality"] = quality
+        download_audio_many(urls, config=cfg_override)
     except Exception as e:
         print(f"❌ Terjadi kesalahan: {e}")
     input("\nTekan Enter untuk lanjut...")
@@ -565,8 +743,8 @@ def run_download_menu():
             print(f"⚡ Mode paralel aktif: {config['parallel_workers']} download sekaligus (ubah di menu Pengaturan)\n")
         print("1. Download video (1)")
         print("2. Download video (banyak)")
-        print("3. Download MP3 (1)")
-        print("4. Download MP3 (banyak)")
+        print("3. Download audio (1)")
+        print("4. Download audio (banyak)")
         print("0. Kembali")
         pilihan = input("Pilih opsi: ").strip()
 
