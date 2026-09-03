@@ -8,6 +8,7 @@ from src.loading import clear_screen
 from src.logo import show_logo, show_intro
 from src.config import load_config, run_settings_menu
 from src.updater import startup_check_and_notify
+from src.lock import AppLock
 
 
 def build_arg_parser():
@@ -83,41 +84,47 @@ def main():
     parser = build_arg_parser()
     args = parser.parse_args()
 
-    if args.urls or args.url_file:
+    with AppLock() as locked:
+        if not locked:
+            print("⚠️  Ada proses download_video_cli lain yang masih jalan (menu atau CLI).")
+            print("    Tunggu sampai selesai, atau hapus 'download/.lock' manual kalau yakin itu sisa proses yang crash.")
+            return
+
+        if args.urls or args.url_file:
+            try:
+                run_cli(args)
+            except KeyboardInterrupt:
+                print("\n\n⏹️  Dibatalkan oleh user.")
+            return
+
         try:
-            run_cli(args)
-        except KeyboardInterrupt:
-            print("\n\n⏹️  Dibatalkan oleh user.")
-        return
-
-    try:
-        show_intro()
-        clear_screen()
-        startup_check_and_notify()
-
-        while True:
+            show_intro()
             clear_screen()
-            show_logo()
-            print("1. Dashboard")
-            print("2. Download video")
-            print("3. Pengaturan")
-            print("0. Keluar")
-            pilihan = input("Pilih menu: ").strip()
+            startup_check_and_notify()
 
-            if pilihan == "1":
-                run_dashboard_menu()
-            elif pilihan == "2":
-                run_download_menu()
-            elif pilihan == "3":
-                run_settings_menu()
-            elif pilihan == "0":
-                print("Sampai jumpa!")
-                break
-            else:
-                print("Pilihan tidak valid.")
-                input("\nTekan Enter untuk lanjut...")
-    except KeyboardInterrupt:
-        print("\n\n👋 Dibatalkan, sampai jumpa!")
+            while True:
+                clear_screen()
+                show_logo()
+                print("1. Dashboard")
+                print("2. Download video")
+                print("3. Pengaturan")
+                print("0. Keluar")
+                pilihan = input("Pilih menu: ").strip()
+
+                if pilihan == "1":
+                    run_dashboard_menu()
+                elif pilihan == "2":
+                    run_download_menu()
+                elif pilihan == "3":
+                    run_settings_menu()
+                elif pilihan == "0":
+                    print("Sampai jumpa!")
+                    break
+                else:
+                    print("Pilihan tidak valid.")
+                    input("\nTekan Enter untuk lanjut...")
+        except KeyboardInterrupt:
+            print("\n\n👋 Dibatalkan, sampai jumpa!")
 
 
 if __name__ == "__main__":
