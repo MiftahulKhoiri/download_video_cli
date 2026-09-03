@@ -11,6 +11,15 @@ def clear_screen():
     os.system("cls" if os.name == "nt" else "clear")
 
 
+def format_size(num_bytes):
+    """Format angka byte jadi string singkat & gampang dibaca, mis. 3.2 MB / 512 KB."""
+    num_bytes = float(num_bytes)
+    for unit in ("B", "KB", "MB", "GB", "TB"):
+        if num_bytes < 1024 or unit == "TB":
+            return f"{num_bytes:.0f} {unit}" if unit == "B" else f"{num_bytes:.1f} {unit}"
+        num_bytes /= 1024
+
+
 def _parse_percent(d):
     pct_str = d.get("_percent_str", "0%").strip()
     try:
