@@ -66,7 +66,7 @@ def startup_check_and_notify(timeout=3):
     """
     try:
         from src.loading import Spinner
-        with Spinner("🔍 Mengecek update yt-dlp..."):
+        with Spinner("🔍 update perangkat lunak :..."):
             installed, latest, is_outdated = check_for_update(timeout=timeout)
         if is_outdated:
             print(f"⚠️  yt-dlp kamu versi {installed}, versi terbaru {latest} tersedia.")
