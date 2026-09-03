@@ -2,6 +2,7 @@
 import glob
 import os
 import shutil
+import subprocess
 import threading
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
@@ -11,7 +12,7 @@ from yt_dlp.utils import download_range_func
 from src.manager import ensure_download_folder, is_already_downloaded, save_file_record
 from src.loading import (
     progress_hook, postprocessor_hook, clear_screen, reset_progress,
-    Spinner, safe_print, noop_hook,
+    Spinner, safe_print, noop_hook, format_size,
 )
 from src.config import load_config
 from src import notify
@@ -21,6 +22,8 @@ log = get_logger()
 
 LOSSY_AUDIO_FORMATS = {"mp3", "m4a", "opus"}
 TERMUX_SHARED_DOWNLOADS = os.path.expanduser("~/storage/downloads")
+MIN_FREE_SPACE_WARN = 500 * 1024 * 1024   # di bawah ini: warning, tetap lanjut
+MIN_FREE_SPACE_ABORT = 50 * 1024 * 1024   # di bawah ini: batalkan otomatis (aman buat mode CLI/cron)
 
 
 def is_ffmpeg_available():
@@ -225,6 +228,58 @@ def _run_download(ydl_opts, url, expected_ext, retries):
     raise last_exc
 
 
+def _verify_downloaded_file(filepath):
+    """
+    Verifikasi file hasil download valid -- bukan 0 byte atau rusak
+    (misal koneksi putus di tengah jalan tapi yt-dlp nggak sempat nge-flag error).
+    Pakai ffprobe (bagian dari ffmpeg) kalau tersedia buat validasi lebih dalam;
+    kalau ffprobe nggak ada/gagal dijalankan, cek ukuran file aja.
+    Return (True, None) kalau valid, (False, alasan) kalau tidak.
+    """
+    if not filepath or not os.path.exists(filepath):
+        return False, "file tidak ditemukan di disk"
+
+    size = os.path.getsize(filepath)
+    if size == 0:
+        return False, "file berukuran 0 byte (kemungkinan unduhan terputus)"
+
+    ffprobe = shutil.which("ffprobe")
+    if ffprobe:
+        try:
+            result = subprocess.run(
+                [ffprobe, "-v", "error", "-show_entries", "format=duration", "-of", "csv=p=0", filepath],
+                capture_output=True, text=True, timeout=30,
+            )
+            if result.returncode != 0 or not result.stdout.strip():
+                return False, "file tidak valid / gagal dibaca ffprobe (kemungkinan rusak)"
+        except (subprocess.SubprocessError, OSError):
+            pass  # ffprobe gagal dijalankan -> jangan gagalkan verifikasi cuma karena ini
+
+    return True, None
+
+
+def _check_disk_space(folder, printer=print):
+    """
+    Cek ruang kosong di disk tempat folder download berada, sebelum mulai
+    download banyak/paralel. Nggak pernah nge-block lewat input() (biar aman
+    dipanggil dari mode CLI/cron non-interaktif):
+      - Di bawah MIN_FREE_SPACE_ABORT -> batalkan otomatis.
+      - Di bawah MIN_FREE_SPACE_WARN  -> kasih warning aja, tetap lanjut.
+    Return True kalau boleh lanjut, False kalau harus dibatalkan.
+    """
+    try:
+        free = shutil.disk_usage(folder).free
+    except OSError:
+        return True  # nggak bisa dicek -- jangan halangi proses cuma karena ini
+
+    if free < MIN_FREE_SPACE_ABORT:
+        printer(f"❌ Ruang kosong tersisa cuma {format_size(free)}, terlalu sedikit buat mulai download. Dibatalkan.")
+        return False
+    if free < MIN_FREE_SPACE_WARN:
+        printer(f"⚠️  Ruang kosong tersisa cuma {format_size(free)}. Download bisa gagal kalau habis di tengah jalan.")
+    return True
+
+
 def notify_download_done(title):
     config = load_config()
     if config.get("notify_termux", True):
@@ -311,6 +366,12 @@ def download_single(url, target_height=None, resolution_label="terbaik", info=No
 
     result, filename = _run_download(ydl_opts, url, expected_ext="mp4", retries=retries)
 
+    valid, alasan = _verify_downloaded_file(filename)
+    if not valid:
+        printer(f"❌ '{title}' gagal diverifikasi: {alasan}. Tidak disimpan ke riwayat, coba unduh ulang.")
+        log.error(f"Verifikasi gagal untuk {title} ({filename}): {alasan}")
+        return False
+
     save_file_record(title, filename, url, resolution_label, video_id=video_id)
     printer(f"\n✅ Selesai! '{title}' berhasil diunduh.")
     log.info(f"Selesai: {title} -> {filename}")
@@ -324,6 +385,10 @@ def download_many(url_list, target_height=None, resolution_label="terbaik", firs
     """Fungsi download banyak video sekaligus (list URL). Jalan paralel kalau config parallel_workers > 1."""
     config = config or load_config()
     workers = max(1, int(config.get("parallel_workers", 1) or 1))
+
+    folder = ensure_download_folder()
+    if not _check_disk_space(folder):
+        return {"berhasil": 0, "dilewati": 0, "gagal": 0}
 
     hasil = {"berhasil": 0, "dilewati": 0, "gagal": 0}
 
@@ -445,6 +510,12 @@ def download_audio_single(url, info=None, audio_format=None, quality=None, confi
 
     result, filename = _run_download(ydl_opts, url, expected_ext=audio_format, retries=retries)
 
+    valid, alasan = _verify_downloaded_file(filename)
+    if not valid:
+        printer(f"❌ '{title}' gagal diverifikasi: {alasan}. Tidak disimpan ke riwayat, coba unduh ulang.")
+        log.error(f"Verifikasi gagal untuk {title} ({filename}): {alasan}")
+        return False
+
     save_file_record(title, filename, url, resolution_label, video_id=video_id)
     printer(f"\n✅ Selesai! '{title}' ({resolution_label}) berhasil diunduh.")
     log.info(f"Selesai: {title} -> {filename}")
@@ -458,6 +529,10 @@ def download_audio_many(url_list, first_info=None, config=None):
     """Fungsi download banyak audio sekaligus. Jalan paralel kalau config parallel_workers > 1."""
     config = config or load_config()
     workers = max(1, int(config.get("parallel_workers", 1) or 1))
+
+    folder = ensure_download_folder()
+    if not _check_disk_space(folder):
+        return {"berhasil": 0, "dilewati": 0, "gagal": 0}
 
     hasil = {"berhasil": 0, "dilewati": 0, "gagal": 0}
 
