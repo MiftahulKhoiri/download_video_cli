@@ -57,14 +57,17 @@ def update_yt_dlp():
         return False, str(e)
 
 
-def startup_check_and_notify(timeout=2):
+def startup_check_and_notify(timeout=3):
     """
-    Dipanggil sekali pas start aplikasi (mode interaktif). Cek singkat, non-blocking
-    (timeout pendek), dan CUMA kasih notice satu baris kalau ketinggalan versi.
-    Nggak pernah bikin aplikasi gagal start kalau offline / PyPI nggak bisa diakses.
+    Dipanggil sekali pas start aplikasi (mode interaktif). Cek versi yt-dlp,
+    dengan Spinner biar keliatan masih proses (bukan macet) selagi nunggu
+    request ke PyPI. Nggak pernah bikin aplikasi gagal start kalau offline /
+    PyPI nggak bisa diakses -- paling lama nunggu ~timeout detik lalu lanjut.
     """
     try:
-        installed, latest, is_outdated = check_for_update(timeout=timeout)
+        from src.loading import Spinner
+        with Spinner("🔍 Mengecek update yt-dlp..."):
+            installed, latest, is_outdated = check_for_update(timeout=timeout)
         if is_outdated:
             print(f"⚠️  yt-dlp kamu versi {installed}, versi terbaru {latest} tersedia.")
             print("    Update lewat menu Pengaturan > Cek & update yt-dlp, biar terhindar dari error 403.\n")
