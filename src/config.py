@@ -20,6 +20,8 @@ DEFAULT_CONFIG = {
 
 _AUDIO_FORMATS = ["mp3", "m4a", "opus", "flac", "wav"]
 _ORGANIZE_OPTIONS = ["none", "channel", "date"]
+_YA = ("y", "ya")
+_TIDAK = ("n", "tidak")
 
 
 def load_config():
@@ -59,6 +61,32 @@ def set_value(key, value):
     return save_config(config)
 
 
+def _batal():
+    print("Dibatalkan, kembali ke menu Pengaturan tanpa perubahan.")
+    input("\nTekan Enter untuk lanjut...")
+
+
+def _invalid():
+    print("❌ Nilai tidak valid.")
+    input("\nTekan Enter untuk lanjut...")
+
+
+def _konfirmasi_simpan(ringkasan):
+    """Tampilkan ringkasan perubahan, minta konfirmasi. Enter/y/ya = simpan, selain itu = batal."""
+    jawab = input(f"Simpan -- {ringkasan}? (Y/n): ").strip().lower()
+    return jawab in ("", "y", "ya")
+
+
+def _terapkan(key, value, ringkasan):
+    """Alur simpan seragam: konfirmasi dulu, baru ditulis ke config.json."""
+    if _konfirmasi_simpan(ringkasan):
+        set_value(key, value)
+        print("✅ Tersimpan.")
+    else:
+        print("Dibatalkan, nilai tidak diubah.")
+    input("\nTekan Enter untuk lanjut...")
+
+
 def _cek_update_yt_dlp_interaktif():
     from src.updater import check_for_update, update_yt_dlp
 
@@ -79,8 +107,8 @@ def _cek_update_yt_dlp_interaktif():
         return
 
     print(f"⚠️  Versi terpasang: {installed} | Versi terbaru: {latest}")
-    jawab = input("Update sekarang? (y/N): ").strip().lower()
-    if jawab != "y":
+    jawab = input("Update sekarang? (y/N, '0' = kembali): ").strip().lower()
+    if jawab not in _YA:
         print("Dibatalkan.")
         input("\nTekan Enter untuk lanjut...")
         return
@@ -114,71 +142,149 @@ def run_settings_menu():
         print(f"12. Batas kecepatan unduh   : {config.get('rate_limit') or 'tanpa batas'}")
         print("13. Cek & update yt-dlp")
         print(" 0. Kembali")
+        print("(pas diminta nilai baru: ketik '0' buat batal tanpa ubah apa-apa)")
         pilihan = input("Pilih pengaturan yang mau diubah: ").strip()
 
         if pilihan == "1":
-            nilai = input("Resolusi default (angka misal 720, kosongkan buat selalu tanya): ").strip()
-            set_value("default_resolution", int(nilai) if nilai.isdigit() else None)
+            print(f"\nResolusi default sekarang: {config.get('default_resolution') or 'selalu tanya'}")
+            nilai = input("Resolusi baru (angka misal 720; kosongkan = selalu tanya; '0' = kembali): ").strip()
+            if nilai == "0":
+                _batal()
+            elif nilai and not nilai.isdigit():
+                _invalid()
+            else:
+                baru = int(nilai) if nilai else None
+                tampil = f"{baru}p" if baru else "selalu tanya"
+                _terapkan("default_resolution", baru, f"resolusi default jadi {tampil}")
+
         elif pilihan == "2":
-            print(f"Pilihan: {', '.join(_AUDIO_FORMATS)}")
-            nilai = input("Format audio default: ").strip().lower()
-            if nilai in _AUDIO_FORMATS:
-                set_value("audio_format", nilai)
+            print(f"\nFormat audio sekarang: {config.get('audio_format')}")
+            print(f"Pilihan: {', '.join(_AUDIO_FORMATS)} ('0' = kembali)")
+            nilai = input("Format audio baru: ").strip().lower()
+            if nilai == "0":
+                _batal()
+            elif nilai not in _AUDIO_FORMATS:
+                _invalid()
             else:
-                print("Nilai tidak valid.")
-                input("\nTekan Enter untuk lanjut...")
+                _terapkan("audio_format", nilai, f"format audio default jadi {nilai}")
+
         elif pilihan == "3":
-            nilai = input("Kualitas audio default (128/192/256/320): ").strip()
-            if nilai in ("128", "192", "256", "320"):
-                set_value("mp3_quality", nilai)
+            print(f"\nKualitas audio sekarang: {config.get('mp3_quality')} kbps")
+            nilai = input("Kualitas baru (128/192/256/320, '0' = kembali): ").strip()
+            if nilai == "0":
+                _batal()
+            elif nilai not in ("128", "192", "256", "320"):
+                _invalid()
             else:
-                print("Nilai tidak valid.")
-                input("\nTekan Enter untuk lanjut...")
+                _terapkan("mp3_quality", nilai, f"kualitas audio default jadi {nilai}kbps")
+
         elif pilihan == "4":
-            nilai = input("Aktifkan embed thumbnail/metadata ke audio? (y/N): ").strip().lower()
-            set_value("embed_metadata", nilai == "y")
+            status = "aktif" if config.get("embed_metadata") else "nonaktif"
+            print(f"\nEmbed thumbnail/metadata sekarang: {status}")
+            nilai = input("Aktifkan? (y/n, '0' = kembali): ").strip().lower()
+            if nilai == "0":
+                _batal()
+            elif nilai not in _YA + _TIDAK:
+                _invalid()
+            else:
+                baru = nilai in _YA
+                tampil = "aktif" if baru else "nonaktif"
+                _terapkan("embed_metadata", baru, f"embed thumbnail/metadata jadi {tampil}")
+
         elif pilihan == "5":
-            nilai = input("Kode bahasa subtitle, pisah koma (misal id,en) atau kosongkan buat nonaktif: ").strip()
-            langs = [x.strip() for x in nilai.split(",") if x.strip()]
-            set_value("subtitle_langs", langs)
+            current = ", ".join(config.get("subtitle_langs") or []) or "nonaktif"
+            print(f"\nSubtitle default sekarang: {current}")
+            nilai = input("Kode bahasa pisah koma (misal id,en); kosongkan = nonaktif; '0' = kembali: ").strip()
+            if nilai == "0":
+                _batal()
+            else:
+                langs = [x.strip() for x in nilai.split(",") if x.strip()]
+                tampil = ", ".join(langs) or "nonaktif"
+                _terapkan("subtitle_langs", langs, f"subtitle default jadi {tampil}")
+
         elif pilihan == "6":
-            nilai = input("Jumlah download paralel (1 = berurutan): ").strip()
-            if nilai.isdigit() and int(nilai) >= 1:
-                set_value("parallel_workers", int(nilai))
+            print(f"\nJumlah download paralel sekarang: {config.get('parallel_workers')}")
+            nilai = input("Jumlah baru (1 = berurutan; '0' = kembali): ").strip()
+            if nilai == "0":
+                _batal()
+            elif not (nilai.isdigit() and int(nilai) >= 1):
+                _invalid()
             else:
-                print("Nilai tidak valid.")
-                input("\nTekan Enter untuk lanjut...")
+                baru = int(nilai)
+                _terapkan("parallel_workers", baru, f"jumlah download paralel jadi {baru}")
+
         elif pilihan == "7":
-            nilai = input("Jumlah percobaan ulang kalau gagal (1 = tanpa retry): ").strip()
-            if nilai.isdigit() and int(nilai) >= 1:
-                set_value("retry_count", int(nilai))
+            print(f"\nJumlah percobaan ulang sekarang: {config.get('retry_count')}")
+            nilai = input("Jumlah baru (1 = tanpa retry; '0' = kembali): ").strip()
+            if nilai == "0":
+                _batal()
+            elif not (nilai.isdigit() and int(nilai) >= 1):
+                _invalid()
             else:
-                print("Nilai tidak valid.")
-                input("\nTekan Enter untuk lanjut...")
+                baru = int(nilai)
+                _terapkan("retry_count", baru, f"jumlah percobaan ulang jadi {baru}")
+
         elif pilihan == "8":
-            nilai = input("Path file cookies (kosongkan buat tidak dipakai): ").strip()
-            set_value("cookies_file", nilai or None)
-        elif pilihan == "9":
-            nilai = input("Aktifkan notifikasi Termux? (y/N): ").strip().lower()
-            set_value("notify_termux", nilai == "y")
-        elif pilihan == "10":
-            print(f"Pilihan: {', '.join(_ORGANIZE_OPTIONS)} (none = tanpa subfolder)")
-            nilai = input("Susun folder berdasarkan: ").strip().lower()
-            if nilai in _ORGANIZE_OPTIONS:
-                set_value("organize_by", nilai)
+            print(f"\nFile cookies sekarang: {config.get('cookies_file') or 'tidak dipakai'}")
+            nilai = input("Path file cookies baru (kosongkan = tidak dipakai; '0' = kembali): ").strip()
+            if nilai == "0":
+                _batal()
             else:
-                print("Nilai tidak valid.")
-                input("\nTekan Enter untuk lanjut...")
+                tampil = nilai or "tidak dipakai"
+                _terapkan("cookies_file", nilai or None, f"file cookies jadi {tampil}")
+
+        elif pilihan == "9":
+            status = "aktif" if config.get("notify_termux") else "nonaktif"
+            print(f"\nNotifikasi Termux sekarang: {status}")
+            nilai = input("Aktifkan? (y/n, '0' = kembali): ").strip().lower()
+            if nilai == "0":
+                _batal()
+            elif nilai not in _YA + _TIDAK:
+                _invalid()
+            else:
+                baru = nilai in _YA
+                tampil = "aktif" if baru else "nonaktif"
+                _terapkan("notify_termux", baru, f"notifikasi Termux jadi {tampil}")
+
+        elif pilihan == "10":
+            print(f"\nSusun folder hasil sekarang: {config.get('organize_by')}")
+            print(f"Pilihan: {', '.join(_ORGANIZE_OPTIONS)} ('0' = kembali)")
+            nilai = input("Nilai baru: ").strip().lower()
+            if nilai == "0":
+                _batal()
+            elif nilai not in _ORGANIZE_OPTIONS:
+                _invalid()
+            else:
+                _terapkan("organize_by", nilai, f"susun folder hasil jadi {nilai}")
+
         elif pilihan == "11":
-            nilai = input("Salin hasil download ke ~/storage/downloads (Termux)? (y/N): ").strip().lower()
-            set_value("termux_shared_storage", nilai == "y")
+            status = "aktif" if config.get("termux_shared_storage") else "nonaktif"
+            print(f"\nSalin ke storage Termux sekarang: {status}")
+            nilai = input("Aktifkan? (y/n, '0' = kembali): ").strip().lower()
+            if nilai == "0":
+                _batal()
+            elif nilai not in _YA + _TIDAK:
+                _invalid()
+            else:
+                baru = nilai in _YA
+                tampil = "aktif" if baru else "nonaktif"
+                _terapkan("termux_shared_storage", baru, f"salin ke storage Termux jadi {tampil}")
+
         elif pilihan == "12":
-            nilai = input("Batas kecepatan (misal 2M, 500K, kosongkan = tanpa batas): ").strip()
-            set_value("rate_limit", nilai or None)
+            print(f"\nBatas kecepatan sekarang: {config.get('rate_limit') or 'tanpa batas'}")
+            nilai = input("Batas baru (misal 2M, 500K; kosongkan = tanpa batas; '0' = kembali): ").strip()
+            if nilai == "0":
+                _batal()
+            else:
+                tampil = nilai or "tanpa batas"
+                _terapkan("rate_limit", nilai or None, f"batas kecepatan unduh jadi {tampil}")
+
         elif pilihan == "13":
             _cek_update_yt_dlp_interaktif()
+
         elif pilihan == "0":
             break
+
         else:
             print("Opsi tidak valid.")
             input("\nTekan Enter untuk lanjut...")
