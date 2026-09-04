@@ -1,9 +1,9 @@
 import argparse
 
 from src.dashboard import run_dashboard_menu
-from src.download import (
-    run_download_menu, expand_playlist, download_many, download_audio_many,
-)
+from src.download_menu import run_download_menu
+from src.media_info import expand_playlist
+from src.download_core import download_many, download_audio_many
 from src.loading import clear_screen
 from src.logo import show_logo, show_intro
 from src.config import load_config, run_settings_menu
