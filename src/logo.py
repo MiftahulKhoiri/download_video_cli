@@ -104,7 +104,7 @@ def _matrix_rain_reveal(lines, duration=8.0, frame_delay=0.06,
     sys.stdout.flush()
 
 
-def show_intro(duration=15):
+def show_intro(duration=7):
     """
     Splash screen animasi, dipanggil SEKALI di awal program (main.py) sebelum
     masuk ke menu utama. Total durasi kira-kira duration + 1.5 detik.
