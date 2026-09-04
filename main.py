@@ -99,8 +99,8 @@ def main():
 
         try:
             show_intro()
-            clear_screen()
             startup_check_and_notify()
+            clear_screen()
 
             while True:
                 clear_screen()
