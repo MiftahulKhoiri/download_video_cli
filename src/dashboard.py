@@ -1,7 +1,8 @@
 import os
 
 from src.manager import load_history, delete_entry, clear_history
-from src.loading import clear_screen, format_size
+from src.loading import format_size
+from src import tui
 
 
 def _total_size(history):
@@ -16,99 +17,88 @@ def _total_size(history):
     return total
 
 
-def show_dashboard(keyword=None):
-    history = load_history()
-    print("\n" + "=" * 50)
-    print("📊 DASHBOARD DOWNLOAD")
-    print("=" * 50)
-
-    if not history:
-        print("Belum ada video yang diunduh.")
-        print("=" * 50)
-        return history
-
-    print(f"Total: {len(history)} item · {format_size(_total_size(history))}\n")
-
-    if keyword:
-        indexed = [(i, item) for i, item in enumerate(history, 1) if keyword.lower() in item.get("title", "").lower()]
-        print(f"🔍 Filter: \"{keyword}\" ({len(indexed)} dari {len(history)} cocok)\n")
-    else:
-        indexed = list(enumerate(history, 1))
-
-    if not indexed:
-        print("Tidak ada entri yang cocok dengan kata kunci ini.")
-
-    for i, item in indexed:
-        print(f"[{i}] {item.get('title')}")
-        print(f"    Resolusi : {item.get('resolution')}")
-        print(f"    File     : {item.get('filename')}")
-        print(f"    URL      : {item.get('url')}")
-        print("-" * 50)
-    print("=" * 50)
-    return history
+def _konfirmasi_hapus_satu(stdscr, real_index, item):
+    pilih = tui.menu(
+        stdscr, "Hapus Entri",
+        ["Ya, hapus dari riwayat saja", "Ya, hapus + file fisiknya", "Batal"],
+        message=f"'{item.get('title')}'",
+    )
+    if pilih == 0:
+        delete_entry(real_index, remove_file=False)
+        tui.message_box(stdscr, "Terhapus", f"'{item.get('title')}' dihapus dari riwayat.")
+    elif pilih == 1:
+        delete_entry(real_index, remove_file=True)
+        tui.message_box(stdscr, "Terhapus", f"'{item.get('title')}' dihapus beserta filenya.")
 
 
-def _hapus_satu():
-    nomor = input("Masukkan nomor entri yang mau dihapus: ").strip()
-    if not nomor.isdigit():
-        print("Nomor tidak valid.")
-        input("\nTekan Enter untuk lanjut...")
-        return
-    hapus_file = input("Hapus file fisiknya juga dari disk? (y/N): ").strip().lower() == "y"
-    sukses, item = delete_entry(int(nomor), remove_file=hapus_file)
-    if sukses:
-        print(f"✅ Entri '{item.get('title')}' dihapus dari riwayat" + (" beserta filenya." if hapus_file else "."))
-    else:
-        print("❌ Nomor entri tidak ditemukan.")
-    input("\nTekan Enter untuk lanjut...")
+def _detail_entry(stdscr, real_index, item):
+    detail = [
+        f"Judul    : {item.get('title')}",
+        f"Resolusi : {item.get('resolution')}",
+        f"File     : {item.get('filename')}",
+        f"URL      : {item.get('url')}",
+    ]
+    pilih = tui.menu(stdscr, "Detail Entri", ["Hapus entri ini", "Kembali"], message=detail)
+    if pilih == 0:
+        _konfirmasi_hapus_satu(stdscr, real_index, item)
 
 
-def _hapus_semua():
-    konfirmasi = input("Yakin hapus SEMUA riwayat? Ketik 'ya' untuk konfirmasi: ").strip().lower()
-    if konfirmasi != "ya":
-        print("Dibatalkan.")
-        input("\nTekan Enter untuk lanjut...")
-        return
-    hapus_file = input("Hapus semua file fisiknya juga dari disk? (y/N): ").strip().lower() == "y"
-    count = clear_history(remove_files=hapus_file)
-    print(f"✅ {count} entri riwayat dihapus" + (" beserta filenya." if hapus_file else "."))
-    input("\nTekan Enter untuk lanjut...")
+def _hapus_semua_tui(stdscr):
+    pilih = tui.menu(
+        stdscr, "Hapus Semua Riwayat",
+        ["Ya, hapus riwayat saja", "Ya, hapus + semua file", "Batal"],
+        message="Tindakan ini nggak bisa dibatalkan!",
+    )
+    if pilih == 0:
+        count = clear_history(remove_files=False)
+        tui.message_box(stdscr, "Terhapus", f"{count} entri riwayat dihapus.")
+    elif pilih == 1:
+        count = clear_history(remove_files=True)
+        tui.message_box(stdscr, "Terhapus", f"{count} entri riwayat dihapus beserta filenya.")
 
 
-def run_dashboard_menu():
-    """Loop menu dashboard, dipanggil dari main."""
+def run_dashboard_menu(stdscr):
+    """Loop dashboard TUI, dipanggil dari main dengan stdscr dari sesi curses yang sama."""
     keyword = None
     while True:
-        clear_screen()
-        history = show_dashboard(keyword=keyword)
-        print("\n1. Hapus satu entri")
-        print("2. Hapus semua riwayat")
-        label_cari = f"Cari/filter (aktif: \"{keyword}\")" if keyword else "Cari/filter"
-        print(f"3. {label_cari}")
-        if keyword:
-            print("4. Hapus filter")
-        print("0. Kembali")
-        pilihan = input("Pilih opsi: ").strip()
+        history = load_history()
+        if not history:
+            tui.message_box(stdscr, "DASHBOARD", "Belum ada video yang diunduh.")
+            return
 
-        if pilihan == "1":
-            if not history:
-                print("Tidak ada riwayat untuk dihapus.")
-                input("\nTekan Enter untuk lanjut...")
-                continue
-            _hapus_satu()
-        elif pilihan == "2":
-            if not history:
-                print("Tidak ada riwayat untuk dihapus.")
-                input("\nTekan Enter untuk lanjut...")
-                continue
-            _hapus_semua()
-        elif pilihan == "3":
-            kata = input("Kata kunci judul (kosongkan buat hapus filter): ").strip()
-            keyword = kata or None
-        elif pilihan == "4" and keyword:
-            keyword = None
-        elif pilihan == "0":
-            break
+        if keyword:
+            indexed = [(i, item) for i, item in enumerate(history)
+                       if keyword.lower() in item.get("title", "").lower()]
         else:
-            print("Opsi tidak valid.")
-            input("\nTekan Enter untuk lanjut...")
+            indexed = list(enumerate(history))
+
+        items = [f"{item.get('title', '?')}  [{item.get('resolution', '?')}]" for _, item in indexed]
+        n_items = len(items)
+
+        cari_label = f'🔍 Ganti/hapus filter ("{keyword}")' if keyword else "🔍 Cari/filter..."
+        actions = [cari_label, "🗑️  Hapus SEMUA riwayat", "Kembali"]
+        full_items = items + actions
+
+        msg = [f"Total: {len(history)} item · {format_size(_total_size(history))}"]
+        if keyword:
+            msg.append(f'Filter aktif: "{keyword}" ({n_items} cocok)')
+            if n_items == 0:
+                msg.append("Nggak ada yang cocok.")
+
+        idx = tui.menu(stdscr, "DASHBOARD", full_items, message=msg)
+        if idx is None or idx == len(full_items) - 1:  # Kembali
+            return
+
+        if idx < n_items:
+            real_index, item = indexed[idx]
+            _detail_entry(stdscr, real_index + 1, item)
+        elif idx == n_items:  # Cari/filter
+            kata = tui.input_box(
+                stdscr, "Cari/Filter",
+                "Kata kunci judul (kosongkan = tampilkan semua):",
+                initial=keyword or "",
+            )
+            if kata is not None:
+                keyword = kata.strip() or None
+        elif idx == n_items + 1:  # Hapus semua
+            _hapus_semua_tui(stdscr)
