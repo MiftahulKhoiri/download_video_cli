@@ -1,4 +1,5 @@
 import argparse
+import curses
 
 from src.dashboard import run_dashboard_menu
 from src.download_menu import run_download_menu
@@ -6,9 +7,10 @@ from src.media_info import expand_playlist
 from src.download_core import download_many, download_audio_many
 from src.loading import clear_screen
 from src.logo import show_logo, show_intro
-from src.config import load_config, run_settings_menu
+from src.config import load_config, _settings_loop
 from src.updater import startup_check_and_notify
 from src.lock import AppLock
+from src import tui
 
 
 def build_arg_parser():
@@ -80,6 +82,24 @@ def run_cli(args):
         download_many(all_urls, target_height=args.res, resolution_label=label, config=config)
 
 
+def _interactive_app(stdscr):
+    """Satu sesi curses yang membungkus seluruh menu interaktif (Dashboard, Download, Pengaturan)."""
+    while True:
+        idx = tui.menu(
+            stdscr, "MENU UTAMA",
+            ["Dashboard", "Download video", "Pengaturan", "Keluar"],
+            message="🎬 YouTube/X Video & Audio Downloader 🎵",
+        )
+        if idx is None or idx == 3:
+            return
+        elif idx == 0:
+            run_dashboard_menu(stdscr)
+        elif idx == 1:
+            run_download_menu(stdscr)
+        elif idx == 2:
+            _settings_loop(stdscr)
+
+
 def main():
     parser = build_arg_parser()
     args = parser.parse_args()
@@ -99,30 +119,13 @@ def main():
 
         try:
             show_intro()
-            startup_check_and_notify()
             clear_screen()
-
-            while True:
-                clear_screen()
-                show_logo()
-                print("1. Dashboard")
-                print("2. Download video")
-                print("3. Pengaturan")
-                print("0. Keluar")
-                pilihan = input("Pilih menu: ").strip()
-
-                if pilihan == "1":
-                    run_dashboard_menu()
-                elif pilihan == "2":
-                    run_download_menu()
-                elif pilihan == "3":
-                    run_settings_menu()
-                elif pilihan == "0":
-                    print("Sampai jumpa!")
-                    break
-                else:
-                    print("Pilihan tidak valid.")
-                    input("\nTekan Enter untuk lanjut...")
+            show_logo()
+            startup_check_and_notify()
+            input("Tekan Enter untuk masuk ke menu...")
+            curses.wrapper(_interactive_app)
+            clear_screen()
+            print("Sampai jumpa!")
         except KeyboardInterrupt:
             print("\n\n👋 Dibatalkan, sampai jumpa!")
 
