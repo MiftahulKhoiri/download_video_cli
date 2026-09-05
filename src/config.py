@@ -1,5 +1,8 @@
+import curses
 import json
 import os
+
+from src import tui
 
 CONFIG_FILE = "config.json"
 
@@ -19,9 +22,9 @@ DEFAULT_CONFIG = {
 }
 
 _AUDIO_FORMATS = ["mp3", "m4a", "opus", "flac", "wav"]
+_QUALITIES = ["128", "192", "256", "320"]
 _ORGANIZE_OPTIONS = ["none", "channel", "date"]
-_YA = ("y", "ya")
-_TIDAK = ("n", "tidak")
+_TOGGLE_OPTIONS = ["Aktif", "Nonaktif"]
 
 
 def load_config():
@@ -61,230 +64,206 @@ def set_value(key, value):
     return save_config(config)
 
 
-def _batal():
-    print("Dibatalkan, kembali ke menu Pengaturan tanpa perubahan.")
-    input("\nTekan Enter untuk lanjut...")
+def _label_bool(v):
+    return "aktif" if v else "nonaktif"
 
 
-def _invalid():
-    print("❌ Nilai tidak valid.")
-    input("\nTekan Enter untuk lanjut...")
+# ---------- Handler tiap item pengaturan (satu fungsi = satu layar TUI) ----------
+
+def _h_default_resolution(stdscr, config):
+    current = config.get("default_resolution")
+    raw = tui.input_box(
+        stdscr, "Resolusi Default",
+        "Angka misal 720. Kosongkan = selalu tanya tiap download.",
+        initial=str(current) if current else "",
+    )
+    if raw is None:
+        return
+    raw = raw.strip()
+    if raw and not raw.isdigit():
+        tui.message_box(stdscr, "Nilai Tidak Valid", "Harus berupa angka, atau dikosongkan.")
+        return
+    set_value("default_resolution", int(raw) if raw else None)
 
 
-def _konfirmasi_simpan(ringkasan):
-    """Tampilkan ringkasan perubahan, minta konfirmasi. Enter/y/ya = simpan, selain itu = batal."""
-    jawab = input(f"Simpan -- {ringkasan}? (Y/n): ").strip().lower()
-    return jawab in ("", "y", "ya")
+def _h_audio_format(stdscr, config):
+    current = config.get("audio_format", "mp3")
+    start = _AUDIO_FORMATS.index(current) if current in _AUDIO_FORMATS else 0
+    idx = tui.menu(stdscr, "Format Audio Default", _AUDIO_FORMATS, selected=start)
+    if idx is not None:
+        set_value("audio_format", _AUDIO_FORMATS[idx])
 
 
-def _terapkan(key, value, ringkasan):
-    """Alur simpan seragam: konfirmasi dulu, baru ditulis ke config.json."""
-    if _konfirmasi_simpan(ringkasan):
-        set_value(key, value)
-        print("✅ Tersimpan.")
-    else:
-        print("Dibatalkan, nilai tidak diubah.")
-    input("\nTekan Enter untuk lanjut...")
+def _h_mp3_quality(stdscr, config):
+    current = config.get("mp3_quality", "192")
+    start = _QUALITIES.index(current) if current in _QUALITIES else 1
+    idx = tui.menu(stdscr, "Kualitas Audio Default", [f"{q} kbps" for q in _QUALITIES],
+                   selected=start, message="Cuma berlaku buat format lossy (mp3/m4a/opus).")
+    if idx is not None:
+        set_value("mp3_quality", _QUALITIES[idx])
 
 
-def _cek_update_yt_dlp_interaktif():
+def _h_embed_metadata(stdscr, config):
+    current = config.get("embed_metadata", True)
+    idx = tui.menu(stdscr, "Embed Thumbnail/Metadata", _TOGGLE_OPTIONS, selected=0 if current else 1)
+    if idx is not None:
+        set_value("embed_metadata", idx == 0)
+
+
+def _h_subtitle_langs(stdscr, config):
+    current = ", ".join(config.get("subtitle_langs") or [])
+    raw = tui.input_box(
+        stdscr, "Subtitle Default",
+        "Kode bahasa pisah koma, misal id,en. Kosongkan = nonaktif.",
+        initial=current,
+    )
+    if raw is None:
+        return
+    langs = [x.strip() for x in raw.split(",") if x.strip()]
+    set_value("subtitle_langs", langs)
+
+
+def _h_parallel_workers(stdscr, config):
+    current = config.get("parallel_workers", 1)
+    raw = tui.input_box(stdscr, "Jumlah Download Paralel", "Angka >= 1. 1 = berurutan (paling aman).",
+                         initial=str(current))
+    if raw is None:
+        return
+    raw = raw.strip()
+    if not (raw.isdigit() and int(raw) >= 1):
+        tui.message_box(stdscr, "Nilai Tidak Valid", "Harus angka, minimal 1.")
+        return
+    set_value("parallel_workers", int(raw))
+
+
+def _h_retry_count(stdscr, config):
+    current = config.get("retry_count", 1)
+    raw = tui.input_box(stdscr, "Jumlah Percobaan Ulang", "Angka >= 1. 1 = tanpa retry.",
+                         initial=str(current))
+    if raw is None:
+        return
+    raw = raw.strip()
+    if not (raw.isdigit() and int(raw) >= 1):
+        tui.message_box(stdscr, "Nilai Tidak Valid", "Harus angka, minimal 1.")
+        return
+    set_value("retry_count", int(raw))
+
+
+def _h_cookies_file(stdscr, config):
+    current = config.get("cookies_file") or ""
+    raw = tui.input_box(stdscr, "File Cookies", "Path ke cookies.txt. Kosongkan = tidak dipakai.",
+                         initial=current)
+    if raw is None:
+        return
+    raw = raw.strip()
+    set_value("cookies_file", raw or None)
+
+
+def _h_notify_termux(stdscr, config):
+    current = config.get("notify_termux", True)
+    idx = tui.menu(stdscr, "Notifikasi Termux", _TOGGLE_OPTIONS, selected=0 if current else 1)
+    if idx is not None:
+        set_value("notify_termux", idx == 0)
+
+
+def _h_organize_by(stdscr, config):
+    current = config.get("organize_by", "none")
+    start = _ORGANIZE_OPTIONS.index(current) if current in _ORGANIZE_OPTIONS else 0
+    idx = tui.menu(stdscr, "Susun Folder Hasil", _ORGANIZE_OPTIONS, selected=start,
+                   message="none = rata, channel = per uploader, date = per tanggal upload.")
+    if idx is not None:
+        set_value("organize_by", _ORGANIZE_OPTIONS[idx])
+
+
+def _h_termux_shared_storage(stdscr, config):
+    current = config.get("termux_shared_storage", False)
+    idx = tui.menu(stdscr, "Salin ke Storage Termux", _TOGGLE_OPTIONS, selected=0 if current else 1,
+                   message="Butuh 'termux-setup-storage' sudah dijalankan.")
+    if idx is not None:
+        set_value("termux_shared_storage", idx == 0)
+
+
+def _h_rate_limit(stdscr, config):
+    current = config.get("rate_limit") or ""
+    raw = tui.input_box(stdscr, "Batas Kecepatan Unduh", "Misal 2M atau 500K. Kosongkan = tanpa batas.",
+                         initial=current)
+    if raw is None:
+        return
+    raw = raw.strip()
+    set_value("rate_limit", raw or None)
+
+
+def _h_update_ytdlp(stdscr, config):
     from src.updater import check_for_update, update_yt_dlp
 
-    print("\n🔍 Mengecek versi yt-dlp...")
+    tui.loading_box(stdscr, "Cek Update", "🔍 Mengecek versi yt-dlp...")
     installed, latest, is_outdated = check_for_update(timeout=5)
 
     if installed is None:
-        print("❌ Tidak bisa mendeteksi yt-dlp yang terpasang.")
-        input("\nTekan Enter untuk lanjut...")
+        tui.message_box(stdscr, "Cek Update", "❌ Tidak bisa mendeteksi yt-dlp yang terpasang.")
         return
     if latest is None:
-        print(f"Versi terpasang: {installed}. Tidak bisa mengecek versi terbaru (cek koneksi internet).")
-        input("\nTekan Enter untuk lanjut...")
+        tui.message_box(stdscr, "Cek Update", [
+            f"Versi terpasang: {installed}",
+            "Tidak bisa mengecek versi terbaru.",
+            "(cek koneksi internet)",
+        ])
         return
     if not is_outdated:
-        print(f"✅ yt-dlp kamu sudah versi terbaru ({installed}).")
-        input("\nTekan Enter untuk lanjut...")
+        tui.message_box(stdscr, "Cek Update", f"✅ Sudah versi terbaru ({installed}).")
         return
 
-    print(f"⚠️  Versi terpasang: {installed} | Versi terbaru: {latest}")
-    jawab = input("Update sekarang? (y/N, '0' = kembali): ").strip().lower()
-    if jawab not in _YA:
-        print("Dibatalkan.")
-        input("\nTekan Enter untuk lanjut...")
+    idx = tui.menu(stdscr, "Update Tersedia", ["Ya, update sekarang", "Tidak"],
+                   message=[f"Terpasang: {installed}", f"Terbaru  : {latest}"])
+    if idx != 0:
         return
 
-    print("⬇️  Mengupdate yt-dlp...")
+    tui.loading_box(stdscr, "Update yt-dlp", "⬇️  Mengupdate, mohon tunggu...")
     ok, output = update_yt_dlp()
     if ok:
-        print("✅ yt-dlp berhasil diupdate. Restart aplikasi biar perubahan kepakai.")
+        tui.message_box(stdscr, "Update Selesai", ["✅ yt-dlp berhasil diupdate.", "Restart aplikasi biar kepakai."])
     else:
-        print(f"❌ Gagal update: {output}")
-    input("\nTekan Enter untuk lanjut...")
+        tui.message_box(stdscr, "Update Gagal", f"❌ {output[:200]}")
+
+
+# Urutan HARUS selaras sama urutan item di _build_items()
+_HANDLERS = [
+    _h_default_resolution, _h_audio_format, _h_mp3_quality, _h_embed_metadata,
+    _h_subtitle_langs, _h_parallel_workers, _h_retry_count, _h_cookies_file,
+    _h_notify_termux, _h_organize_by, _h_termux_shared_storage, _h_rate_limit,
+    _h_update_ytdlp,
+]
+
+
+def _build_items(config):
+    return [
+        f"Resolusi default          : {config.get('default_resolution') or 'selalu tanya'}",
+        f"Format audio default      : {config.get('audio_format')}",
+        f"Kualitas audio default    : {config.get('mp3_quality')} kbps",
+        f"Embed thumbnail/metadata  : {_label_bool(config.get('embed_metadata'))}",
+        f"Subtitle default          : {', '.join(config.get('subtitle_langs') or []) or 'nonaktif'}",
+        f"Jumlah download paralel   : {config.get('parallel_workers')}",
+        f"Jumlah percobaan ulang    : {config.get('retry_count')}",
+        f"File cookies              : {config.get('cookies_file') or 'tidak dipakai'}",
+        f"Notifikasi Termux         : {_label_bool(config.get('notify_termux'))}",
+        f"Susun folder hasil        : {config.get('organize_by')}",
+        f"Salin ke storage Termux   : {_label_bool(config.get('termux_shared_storage'))}",
+        f"Batas kecepatan unduh     : {config.get('rate_limit') or 'tanpa batas'}",
+        "Cek & update yt-dlp",
+    ]
+
+
+def _settings_loop(stdscr):
+    selected = 0
+    while True:
+        config = load_config()
+        items = _build_items(config)
+        idx = tui.menu(stdscr, "PENGATURAN", items + ["Kembali"], selected=selected)
+        if idx is None or idx == len(items):
+            return
+        selected = idx
+        _HANDLERS[idx](stdscr, config)
 
 
 def run_settings_menu():
-    from src.loading import clear_screen
-    while True:
-        clear_screen()
-        config = load_config()
-        print("===== PENGATURAN =====")
-        print(f" 1. Resolusi default        : {config.get('default_resolution') or 'selalu tanya'}")
-        print(f" 2. Format audio default    : {config.get('audio_format')}")
-        print(f" 3. Kualitas audio default  : {config.get('mp3_quality')} kbps (lossy saja)")
-        print(f" 4. Embed thumbnail/metadata: {'aktif' if config.get('embed_metadata') else 'nonaktif'}")
-        print(f" 5. Subtitle default        : {', '.join(config.get('subtitle_langs') or []) or 'nonaktif'}")
-        print(f" 6. Jumlah download paralel : {config.get('parallel_workers')}")
-        print(f" 7. Jumlah percobaan ulang  : {config.get('retry_count')}")
-        print(f" 8. File cookies            : {config.get('cookies_file') or 'tidak dipakai'}")
-        print(f" 9. Notifikasi Termux       : {'aktif' if config.get('notify_termux') else 'nonaktif'}")
-        print(f"10. Susun folder hasil      : {config.get('organize_by')}")
-        print(f"11. Salin ke storage Termux : {'aktif' if config.get('termux_shared_storage') else 'nonaktif'}")
-        print(f"12. Batas kecepatan unduh   : {config.get('rate_limit') or 'tanpa batas'}")
-        print("13. Cek & update yt-dlp")
-        print(" 0. Kembali")
-        print("(pas diminta nilai baru: ketik '0' buat batal tanpa ubah apa-apa)")
-        pilihan = input("Pilih pengaturan yang mau diubah: ").strip()
-
-        if pilihan == "1":
-            print(f"\nResolusi default sekarang: {config.get('default_resolution') or 'selalu tanya'}")
-            nilai = input("Resolusi baru (angka misal 720; kosongkan = selalu tanya; '0' = kembali): ").strip()
-            if nilai == "0":
-                _batal()
-            elif nilai and not nilai.isdigit():
-                _invalid()
-            else:
-                baru = int(nilai) if nilai else None
-                tampil = f"{baru}p" if baru else "selalu tanya"
-                _terapkan("default_resolution", baru, f"resolusi default jadi {tampil}")
-
-        elif pilihan == "2":
-            print(f"\nFormat audio sekarang: {config.get('audio_format')}")
-            print(f"Pilihan: {', '.join(_AUDIO_FORMATS)} ('0' = kembali)")
-            nilai = input("Format audio baru: ").strip().lower()
-            if nilai == "0":
-                _batal()
-            elif nilai not in _AUDIO_FORMATS:
-                _invalid()
-            else:
-                _terapkan("audio_format", nilai, f"format audio default jadi {nilai}")
-
-        elif pilihan == "3":
-            print(f"\nKualitas audio sekarang: {config.get('mp3_quality')} kbps")
-            nilai = input("Kualitas baru (128/192/256/320, '0' = kembali): ").strip()
-            if nilai == "0":
-                _batal()
-            elif nilai not in ("128", "192", "256", "320"):
-                _invalid()
-            else:
-                _terapkan("mp3_quality", nilai, f"kualitas audio default jadi {nilai}kbps")
-
-        elif pilihan == "4":
-            status = "aktif" if config.get("embed_metadata") else "nonaktif"
-            print(f"\nEmbed thumbnail/metadata sekarang: {status}")
-            nilai = input("Aktifkan? (y/n, '0' = kembali): ").strip().lower()
-            if nilai == "0":
-                _batal()
-            elif nilai not in _YA + _TIDAK:
-                _invalid()
-            else:
-                baru = nilai in _YA
-                tampil = "aktif" if baru else "nonaktif"
-                _terapkan("embed_metadata", baru, f"embed thumbnail/metadata jadi {tampil}")
-
-        elif pilihan == "5":
-            current = ", ".join(config.get("subtitle_langs") or []) or "nonaktif"
-            print(f"\nSubtitle default sekarang: {current}")
-            nilai = input("Kode bahasa pisah koma (misal id,en); kosongkan = nonaktif; '0' = kembali: ").strip()
-            if nilai == "0":
-                _batal()
-            else:
-                langs = [x.strip() for x in nilai.split(",") if x.strip()]
-                tampil = ", ".join(langs) or "nonaktif"
-                _terapkan("subtitle_langs", langs, f"subtitle default jadi {tampil}")
-
-        elif pilihan == "6":
-            print(f"\nJumlah download paralel sekarang: {config.get('parallel_workers')}")
-            nilai = input("Jumlah baru (1 = berurutan; '0' = kembali): ").strip()
-            if nilai == "0":
-                _batal()
-            elif not (nilai.isdigit() and int(nilai) >= 1):
-                _invalid()
-            else:
-                baru = int(nilai)
-                _terapkan("parallel_workers", baru, f"jumlah download paralel jadi {baru}")
-
-        elif pilihan == "7":
-            print(f"\nJumlah percobaan ulang sekarang: {config.get('retry_count')}")
-            nilai = input("Jumlah baru (1 = tanpa retry; '0' = kembali): ").strip()
-            if nilai == "0":
-                _batal()
-            elif not (nilai.isdigit() and int(nilai) >= 1):
-                _invalid()
-            else:
-                baru = int(nilai)
-                _terapkan("retry_count", baru, f"jumlah percobaan ulang jadi {baru}")
-
-        elif pilihan == "8":
-            print(f"\nFile cookies sekarang: {config.get('cookies_file') or 'tidak dipakai'}")
-            nilai = input("Path file cookies baru (kosongkan = tidak dipakai; '0' = kembali): ").strip()
-            if nilai == "0":
-                _batal()
-            else:
-                tampil = nilai or "tidak dipakai"
-                _terapkan("cookies_file", nilai or None, f"file cookies jadi {tampil}")
-
-        elif pilihan == "9":
-            status = "aktif" if config.get("notify_termux") else "nonaktif"
-            print(f"\nNotifikasi Termux sekarang: {status}")
-            nilai = input("Aktifkan? (y/n, '0' = kembali): ").strip().lower()
-            if nilai == "0":
-                _batal()
-            elif nilai not in _YA + _TIDAK:
-                _invalid()
-            else:
-                baru = nilai in _YA
-                tampil = "aktif" if baru else "nonaktif"
-                _terapkan("notify_termux", baru, f"notifikasi Termux jadi {tampil}")
-
-        elif pilihan == "10":
-            print(f"\nSusun folder hasil sekarang: {config.get('organize_by')}")
-            print(f"Pilihan: {', '.join(_ORGANIZE_OPTIONS)} ('0' = kembali)")
-            nilai = input("Nilai baru: ").strip().lower()
-            if nilai == "0":
-                _batal()
-            elif nilai not in _ORGANIZE_OPTIONS:
-                _invalid()
-            else:
-                _terapkan("organize_by", nilai, f"susun folder hasil jadi {nilai}")
-
-        elif pilihan == "11":
-            status = "aktif" if config.get("termux_shared_storage") else "nonaktif"
-            print(f"\nSalin ke storage Termux sekarang: {status}")
-            nilai = input("Aktifkan? (y/n, '0' = kembali): ").strip().lower()
-            if nilai == "0":
-                _batal()
-            elif nilai not in _YA + _TIDAK:
-                _invalid()
-            else:
-                baru = nilai in _YA
-                tampil = "aktif" if baru else "nonaktif"
-                _terapkan("termux_shared_storage", baru, f"salin ke storage Termux jadi {tampil}")
-
-        elif pilihan == "12":
-            print(f"\nBatas kecepatan sekarang: {config.get('rate_limit') or 'tanpa batas'}")
-            nilai = input("Batas baru (misal 2M, 500K; kosongkan = tanpa batas; '0' = kembali): ").strip()
-            if nilai == "0":
-                _batal()
-            else:
-                tampil = nilai or "tanpa batas"
-                _terapkan("rate_limit", nilai or None, f"batas kecepatan unduh jadi {tampil}")
-
-        elif pilihan == "13":
-            _cek_update_yt_dlp_interaktif()
-
-        elif pilihan == "0":
-            break
-
-        else:
-            print("Opsi tidak valid.")
-            input("\nTekan Enter untuk lanjut...")
+    curses.wrapper(_settings_loop)
