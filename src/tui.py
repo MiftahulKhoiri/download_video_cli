@@ -34,17 +34,28 @@ def _center_title(win, title, width):
         pass  # nulis persis di sudut kanan-bawah kadang error di ncurses, aman diabaikan
 
 
-def _new_box(stdscr, height, width, title=None):
+def _new_box_at(stdscr, height, width, y0, x0, title=None):
+    """Bikin box curses di posisi y0,x0 spesifik (dipangkas biar muat di layar)."""
     h, w = stdscr.getmaxyx()
     height = min(height, max(h - 2, 3))
     width = min(width, max(w - 2, 10))
-    y0 = max(0, (h - height) // 2)
-    x0 = max(0, (w - width) // 2)
+    y0 = max(0, min(y0, max(0, h - height)))
+    x0 = max(0, min(x0, max(0, w - width)))
     win = curses.newwin(height, width, y0, x0)
     win.keypad(True)
     win.box()
     _center_title(win, title, width)
     return win
+
+
+def _new_box(stdscr, height, width, title=None):
+    """Box di tengah layar -- dipakai fungsi yang nggak butuh banner di atasnya."""
+    h, w = stdscr.getmaxyx()
+    height = min(height, max(h - 2, 3))
+    width = min(width, max(w - 2, 10))
+    y0 = max(0, (h - height) // 2)
+    x0 = max(0, (w - width) // 2)
+    return _new_box_at(stdscr, height, width, y0, x0, title)
 
 
 @contextlib.contextmanager
@@ -66,13 +77,15 @@ def suspend(stdscr):
         stdscr.refresh()
 
 
-def menu(stdscr, title, items, selected=0, message=None):
+def menu(stdscr, title, items, selected=0, message=None, banner=None):
     """
     Menu box gaya raspi-config: judul di border atas, pesan info opsional
-    di atas daftar, item ter-highlight (reverse video) pas dinavigasi.
+    di atas daftar (di DALAM kotak), item ter-highlight (reverse video) pas
+    dinavigasi.
 
     items: list[str]
-    message: None, str, atau list[str] -- ditampilkan di atas daftar item
+    message: None, str, atau list[str] -- ditampilkan di DALAM kotak, di atas daftar item
+    banner: None, str, atau list[str] -- ditampilkan di LUAR kotak, di atasnya (mis. judul/branding app)
     Return: index item yang dipilih (int), atau None kalau dibatalkan (Esc/q).
     """
     if not items:
@@ -84,23 +97,42 @@ def menu(stdscr, title, items, selected=0, message=None):
         msg_lines = message if isinstance(message, list) else [message]
 
     h, w = stdscr.getmaxyx()
+
+    banner_lines = []
+    if banner:
+        raw_banner = banner if isinstance(banner, list) else [banner]
+        for line in raw_banner:
+            banner_lines.extend(textwrap.wrap(line, max(20, w - 4)) or [""])
+
     content_w = max([len(i) for i in items] + [len(m) for m in msg_lines] + [len(title or "")])
     box_w = min(content_w + 6, w - 2)
     box_w = max(box_w, 24)
     footer = "↑↓ pilih  Enter pilih  Esc kembali"
     box_w = max(box_w, min(len(footer) + 4, w - 2))
 
-    max_visible = max(1, (h - 2) - 4 - len(msg_lines))
+    banner_block_h = (len(banner_lines) + 1) if banner_lines else 0
+    max_visible = max(1, (h - 2) - 4 - len(msg_lines) - banner_block_h)
     visible = min(len(items), max_visible)
-    box_h = min(visible + 4 + len(msg_lines), h - 2)
+    box_h = min(visible + 4 + len(msg_lines), max(3, h - 2 - banner_block_h))
+
+    total_h = banner_block_h + box_h
+    top = max(0, (h - total_h) // 2)
+    box_y0 = top + banner_block_h
+    box_x0 = max(0, (w - box_w) // 2)
 
     scroll = 0
     _safe_curs_set(0)
     stdscr.erase()
+    for i, line in enumerate(banner_lines):
+        x = max(0, (w - len(line)) // 2)
+        try:
+            stdscr.addstr(top + i, x, line[:max(0, w - x - 1)], curses.A_BOLD)
+        except curses.error:
+            pass
     stdscr.refresh()
 
     while True:
-        win = _new_box(stdscr, box_h, box_w, title)
+        win = _new_box_at(stdscr, box_h, box_w, box_y0, box_x0, title)
         inner_w = box_w - 4
 
         for i, line in enumerate(msg_lines):
