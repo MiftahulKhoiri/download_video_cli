@@ -87,7 +87,7 @@ def _interactive_app(stdscr):
         idx = tui.menu(
             stdscr, "MENU UTAMA",
             ["Dashboard", "Download video", "Pengaturan", "Keluar"],
-            message="🎬 YouTube Video & Audio Downloader 🎵",
+            banner="🎬 YouTube Video & Audio Downloader 🎵",
         )
         if idx is None or idx == 3:
             return
