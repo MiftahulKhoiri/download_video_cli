@@ -6,6 +6,7 @@ nggak perlu install apa-apa tambahan). Semua fungsi di sini menerima stdscr
 
 Navigasi standar: ↑/↓ (atau k/j) pindah, Enter pilih/konfirmasi, Esc/q batal.
 """
+import contextlib
 import curses
 import os
 import textwrap
@@ -46,6 +47,25 @@ def _new_box(stdscr, height, width, title=None):
     return win
 
 
+@contextlib.contextmanager
+def suspend(stdscr):
+    """
+    Keluar sementara dari mode curses -- buat jalanin kode yang nyetak ke layar
+    biasa (progress bar download, spinner, dll yang sudah ada & teruji), lalu
+    otomatis balik ke mode curses & gambar ulang layar pas selesai.
+
+        with tui.suspend(stdscr):
+            print("proses non-curses di sini...")
+            input("Tekan Enter...")
+    """
+    curses.endwin()
+    try:
+        yield
+    finally:
+        stdscr.touchwin()
+        stdscr.refresh()
+
+
 def menu(stdscr, title, items, selected=0, message=None):
     """
     Menu box gaya raspi-config: judul di border atas, pesan info opsional
@@ -76,6 +96,8 @@ def menu(stdscr, title, items, selected=0, message=None):
 
     scroll = 0
     _safe_curs_set(0)
+    stdscr.erase()
+    stdscr.refresh()
 
     while True:
         win = _new_box(stdscr, box_h, box_w, title)
@@ -141,6 +163,8 @@ def input_box(stdscr, title, prompt, initial=""):
     text = list(initial)
     cursor = len(text)
     _safe_curs_set(1)
+    stdscr.erase()
+    stdscr.refresh()
 
     while True:
         win = _new_box(stdscr, box_h, box_w, title)
@@ -214,6 +238,8 @@ def message_box(stdscr, title, message):
     box_w = max(box_w, len(title or "") + 6, 24)
     box_h = min(len(wrapped) + 4, h - 2)
 
+    stdscr.erase()
+    stdscr.refresh()
     win = _new_box(stdscr, box_h, box_w, title)
     inner_w = box_w - 4
     for i, line in enumerate(wrapped):
@@ -238,6 +264,8 @@ def loading_box(stdscr, title, message):
     box_w = max(box_w, len(title or "") + 6, 24)
     box_h = min(len(lines) + 4, h - 2)
 
+    stdscr.erase()
+    stdscr.refresh()
     win = _new_box(stdscr, box_h, box_w, title)
     inner_w = box_w - 4
     for i, line in enumerate(lines):
