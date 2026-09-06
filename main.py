@@ -8,7 +8,6 @@ from src.download_core import download_many, download_audio_many
 from src.loading import clear_screen
 from src.logo import show_logo, show_intro
 from src.config import load_config, _settings_loop, check_config_integrity
-from src.updater import startup_check_and_notify
 from src.lock import AppLock
 from src import tui
 
@@ -143,7 +142,6 @@ def main():
             show_intro()
             clear_screen()
             show_logo()
-            startup_check_and_notify()
             check_config_integrity()
             input("Tekan Enter untuk masuk ke menu...")
             curses.wrapper(_interactive_app)
