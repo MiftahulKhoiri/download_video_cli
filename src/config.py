@@ -27,19 +27,100 @@ _ORGANIZE_OPTIONS = ["none", "channel", "date"]
 _TOGGLE_OPTIONS = ["Aktif", "Nonaktif"]
 
 
+def _validate_config(config):
+    """
+    Perbaiki nilai yang tipe/isinya nggak masuk akal (misal config.json rusak
+    atau diedit manual jadi berantakan) dengan mengembalikannya ke default.
+    Dipanggil diam-diam (nggak print apa pun) karena load_config() sering
+    kepanggil dari dalam sesi curses -- print() di situ bisa ngerusak tampilan.
+    Return (config_yang_sudah_bersih, list_nama_field_yang_direset).
+    """
+    reset = []
+
+    def _cek(key, valid):
+        if not valid:
+            config[key] = DEFAULT_CONFIG[key]
+            reset.append(key)
+
+    v = config.get("default_resolution")
+    _cek("default_resolution", v is None or (isinstance(v, int) and not isinstance(v, bool) and v > 0))
+
+    _cek("audio_format", config.get("audio_format") in _AUDIO_FORMATS)
+
+    _cek("mp3_quality", str(config.get("mp3_quality")) in _QUALITIES)
+    if "mp3_quality" not in reset:
+        config["mp3_quality"] = str(config["mp3_quality"])
+
+    _cek("embed_metadata", isinstance(config.get("embed_metadata"), bool))
+
+    v = config.get("subtitle_langs")
+    _cek("subtitle_langs", isinstance(v, list) and all(isinstance(x, str) for x in v))
+
+    v = config.get("parallel_workers")
+    _cek("parallel_workers", isinstance(v, int) and not isinstance(v, bool) and v >= 1)
+
+    v = config.get("retry_count")
+    _cek("retry_count", isinstance(v, int) and not isinstance(v, bool) and v >= 1)
+
+    v = config.get("cookies_file")
+    _cek("cookies_file", v is None or isinstance(v, str))
+
+    _cek("notify_termux", isinstance(config.get("notify_termux"), bool))
+
+    _cek("organize_by", config.get("organize_by") in _ORGANIZE_OPTIONS)
+
+    _cek("termux_shared_storage", isinstance(config.get("termux_shared_storage"), bool))
+
+    v = config.get("rate_limit")
+    _cek("rate_limit", v is None or isinstance(v, str))
+
+    return config, reset
+
+
 def load_config():
     if not os.path.exists(CONFIG_FILE):
         return dict(DEFAULT_CONFIG)
     try:
         with open(CONFIG_FILE, "r", encoding="utf-8") as f:
             data = json.load(f)
-    except (json.JSONDecodeError, OSError) as e:
-        print(f"⚠️  Gagal membaca {CONFIG_FILE}: {e}. Menggunakan pengaturan default.")
+    except (json.JSONDecodeError, OSError):
+        return dict(DEFAULT_CONFIG)
+
+    if not isinstance(data, dict):
         return dict(DEFAULT_CONFIG)
 
     merged = dict(DEFAULT_CONFIG)
     merged.update(data)
+    merged, _ = _validate_config(merged)
     return merged
+
+
+def check_config_integrity():
+    """
+    Dipanggil SEKALI pas startup (mode teks biasa, sebelum curses jalan).
+    Kalau config.json ada nilai yang nggak valid, kasih tau user dan simpan
+    versi yang sudah diperbaiki balik ke disk. Aman kalau file belum ada
+    atau memang belum pernah diubah dari default.
+    """
+    if not os.path.exists(CONFIG_FILE):
+        return
+    try:
+        with open(CONFIG_FILE, "r", encoding="utf-8") as f:
+            data = json.load(f)
+    except (json.JSONDecodeError, OSError):
+        print(f"⚠️  {CONFIG_FILE} rusak/nggak valid, pakai pengaturan default sampai diubah lagi lewat menu Pengaturan.")
+        return
+
+    if not isinstance(data, dict):
+        print(f"⚠️  Isi {CONFIG_FILE} bukan format yang diharapkan, pakai pengaturan default.")
+        return
+
+    merged = dict(DEFAULT_CONFIG)
+    merged.update(data)
+    fixed, reset = _validate_config(merged)
+    if reset:
+        print(f"⚠️  Nilai pengaturan nggak valid buat: {', '.join(reset)} -- direset ke default.")
+        save_config(fixed)
 
 
 def save_config(config):
