@@ -114,7 +114,14 @@ def _kumpulkan_urls_tui(stdscr):
 
     urls = []
     while True:
-        u = tui.input_box(stdscr, "Ketik URL", f"URL ke-{len(urls) + 1} (kosongkan buat selesai):")
+        prompt = []
+        if urls:
+            prompt.append("URL yang sudah dimasukkan:")
+            prompt.extend(f"{i}. {u}" for i, u in enumerate(urls, 1))
+            prompt.append("")
+        prompt.append(f"URL ke-{len(urls) + 1} (kosongkan buat selesai):")
+
+        u = tui.input_box(stdscr, "Ketik URL", prompt)
         if not u or not u.strip():
             break
         urls.append(u.strip())
