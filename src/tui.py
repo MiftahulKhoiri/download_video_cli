@@ -235,14 +235,32 @@ def menu(stdscr, title, items, selected=0, message=None, banner=None):
         elif key == curses.KEY_RESIZE:
             h, w = stdscr.getmaxyx()
 
-
 def input_box(stdscr, title, prompt, initial=""):
     """
     Kotak input teks satu baris. Enter konfirmasi & kembalikan isinya (str),
     Esc batal & kembalikan None. Panah kiri/kanan geser kursor, Backspace/Delete hapus.
+
+    prompt: str atau list[str] -- kalau list, tiap elemen jadi baris terpisah
+    (dibungkus/wrap masing-masing), berguna buat nunjukin konteks/riwayat
+    di atas kotak input (mis. daftar URL yang udah dimasukkan sebelumnya).
+    Kalau daftarnya kepanjangan buat muat di layar, baris paling lama
+    dipotong dan diganti "..." di awal -- field input selalu dijamin kelihatan.
     """
     h, w = stdscr.getmaxyx()
-    prompt_lines = textwrap.wrap(prompt, max(20, w - 8)) or [prompt]
+    raw_lines = prompt if isinstance(prompt, list) else [prompt]
+    all_prompt_lines = []
+    for line in raw_lines:
+        all_prompt_lines.extend(textwrap.wrap(line, max(20, w - 8)) or [""])
+    if not all_prompt_lines:
+        all_prompt_lines = [""]
+
+    max_prompt_lines = max(1, h - 6)  # sisa ruang wajib buat border+field+footer
+    if len(all_prompt_lines) > max_prompt_lines:
+        keep = max(1, max_prompt_lines - 1)
+        prompt_lines = ["..."] + all_prompt_lines[-keep:]
+    else:
+        prompt_lines = all_prompt_lines
+
     box_w = min(max(max((len(l) for l in prompt_lines), default=20), len(title or "")) + 6, w - 2)
     box_w = max(box_w, 30)
     box_h = min(len(prompt_lines) + 6, h - 2)
@@ -263,7 +281,7 @@ def input_box(stdscr, title, prompt, initial=""):
             except curses.error:
                 pass
 
-        field_row = 2 + len(prompt_lines)
+        field_row = min(2 + len(prompt_lines), box_h - 3)
         display = "".join(text)
         if len(display) >= inner_w:
             start = max(0, cursor - inner_w + 1)
@@ -281,7 +299,10 @@ def input_box(stdscr, title, prompt, initial=""):
         except curses.error:
             pass
 
-        win.move(field_row, 2 + (cursor - start))
+        try:
+            win.move(field_row, 2 + (cursor - start))
+        except curses.error:
+            pass
         win.refresh()
         key = win.getch()
 
@@ -311,7 +332,6 @@ def input_box(stdscr, title, prompt, initial=""):
         elif 32 <= key <= 126:
             text.insert(cursor, chr(key))
             cursor += 1
-
 
 def message_box(stdscr, title, message):
     """Tampilkan pesan, tunggu sembarang tombol ditekan buat lanjut."""
