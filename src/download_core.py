@@ -262,21 +262,22 @@ def download_single(url, target_height=None, resolution_label="terbaik", info=No
         safe_print(f"⬇️  Mulai unduh: {title}")
     log.info(f"Mulai unduh: {title} ({url}) [{resolution_label}]")
 
-    result, filename = _run_download(ydl_opts, url, expected_ext="mp4", retries=retries)
+    with notify.wake_lock():
+        result, filename = _run_download(ydl_opts, url, expected_ext="mp4", retries=retries)
 
-    valid, alasan = _verify_downloaded_file(filename)
-    if not valid:
-        printer(f"❌ '{title}' gagal diverifikasi: {alasan}. Tidak disimpan ke riwayat, coba unduh ulang.")
-        log.error(f"Verifikasi gagal untuk {title} ({filename}): {alasan}")
-        return False
+        valid, alasan = _verify_downloaded_file(filename)
+        if not valid:
+            printer(f"❌ '{title}' gagal diverifikasi: {alasan}. Tidak disimpan ke riwayat, coba unduh ulang.")
+            log.error(f"Verifikasi gagal untuk {title} ({filename}): {alasan}")
+            return False
 
-    save_file_record(title, filename, url, resolution_label, video_id=video_id)
-    printer(f"\n✅ Selesai! '{title}' berhasil diunduh.")
-    log.info(f"Selesai: {title} -> {filename}")
-    if termux_shared:
-        _copy_to_termux_shared_storage(filename, printer)
-    notify_download_done(title)
-    return True
+        save_file_record(title, filename, url, resolution_label, video_id=video_id)
+        printer(f"\n✅ Selesai! '{title}' berhasil diunduh.")
+        log.info(f"Selesai: {title} -> {filename}")
+        if termux_shared:
+            _copy_to_termux_shared_storage(filename, printer)
+        notify_download_done(title)
+        return True
 
 
 def download_many(url_list, target_height=None, resolution_label="terbaik", first_info=None, config=None):
@@ -406,21 +407,22 @@ def download_audio_single(url, info=None, audio_format=None, quality=None, confi
         safe_print(f"⬇️  Mulai unduh ({audio_format}): {title}")
     log.info(f"Mulai unduh audio: {title} ({url}) [{resolution_label}]")
 
-    result, filename = _run_download(ydl_opts, url, expected_ext=audio_format, retries=retries)
+    with notify.wake_lock():
+        result, filename = _run_download(ydl_opts, url, expected_ext=audio_format, retries=retries)
 
-    valid, alasan = _verify_downloaded_file(filename)
-    if not valid:
-        printer(f"❌ '{title}' gagal diverifikasi: {alasan}. Tidak disimpan ke riwayat, coba unduh ulang.")
-        log.error(f"Verifikasi gagal untuk {title} ({filename}): {alasan}")
-        return False
+        valid, alasan = _verify_downloaded_file(filename)
+        if not valid:
+            printer(f"❌ '{title}' gagal diverifikasi: {alasan}. Tidak disimpan ke riwayat, coba unduh ulang.")
+            log.error(f"Verifikasi gagal untuk {title} ({filename}): {alasan}")
+            return False
 
-    save_file_record(title, filename, url, resolution_label, video_id=video_id)
-    printer(f"\n✅ Selesai! '{title}' ({resolution_label}) berhasil diunduh.")
-    log.info(f"Selesai: {title} -> {filename}")
-    if termux_shared:
-        _copy_to_termux_shared_storage(filename, printer)
-    notify_download_done(f"{title} ({audio_format})")
-    return True
+        save_file_record(title, filename, url, resolution_label, video_id=video_id)
+        printer(f"\n✅ Selesai! '{title}' ({resolution_label}) berhasil diunduh.")
+        log.info(f"Selesai: {title} -> {filename}")
+        if termux_shared:
+            _copy_to_termux_shared_storage(filename, printer)
+        notify_download_done(f"{title} ({audio_format})")
+        return True
 
 
 def download_audio_many(url_list, first_info=None, config=None):
