@@ -7,7 +7,8 @@ from src.media_info import expand_playlist
 from src.download_core import download_many, download_audio_many
 from src.loading import clear_screen
 from src.logo import show_logo, show_intro
-from src.config import load_config, _settings_loop
+from src.config import load_config, _settings_loop, check_config_integrity
+from src.updater import startup_check_and_notify
 from src.lock import AppLock
 from src import tui
 
@@ -81,15 +82,35 @@ def run_cli(args):
         download_many(all_urls, target_height=args.res, resolution_label=label, config=config)
 
 
+APP_VERSION = "1.0.0"
+
+
+def _show_about(stdscr):
+    from src.updater import get_installed_version
+    from src.media_info import get_ffmpeg_version, is_ffmpeg_available
+    import platform as _platform
+
+    ytdlp_v = get_installed_version() or "tidak terdeteksi"
+    ffmpeg_v = get_ffmpeg_version() if is_ffmpeg_available() else None
+    tui.message_box(stdscr, "Tentang", [
+        f"YouTube/X Video & Audio Downloader v{APP_VERSION}",
+        "",
+        f"yt-dlp  : {ytdlp_v}",
+        f"ffmpeg  : {ffmpeg_v or 'tidak ditemukan'}",
+        f"Python  : {_platform.python_version()}",
+    ])
+
+
 def _interactive_app(stdscr):
     """Satu sesi curses yang membungkus seluruh menu interaktif (Dashboard, Download, Pengaturan)."""
+    tui.init_theme(stdscr)
     while True:
         idx = tui.menu(
             stdscr, "MENU UTAMA",
-            ["Dashboard", "Download video", "Pengaturan", "Keluar"],
+            ["Dashboard", "Download video", "Pengaturan", "Tentang", "Keluar"],
             banner="🎬 YouTube Video & Audio Downloader 🎵",
         )
-        if idx is None or idx == 3:
+        if idx is None or idx == 4:
             return
         elif idx == 0:
             run_dashboard_menu(stdscr)
@@ -97,6 +118,8 @@ def _interactive_app(stdscr):
             run_download_menu(stdscr)
         elif idx == 2:
             _settings_loop(stdscr)
+        elif idx == 3:
+            _show_about(stdscr)
 
 
 def main():
@@ -120,6 +143,8 @@ def main():
             show_intro()
             clear_screen()
             show_logo()
+            startup_check_and_notify()
+            check_config_integrity()
             input("Tekan Enter untuk masuk ke menu...")
             curses.wrapper(_interactive_app)
             clear_screen()
