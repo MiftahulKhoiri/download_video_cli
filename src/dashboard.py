@@ -4,6 +4,9 @@ from src.manager import load_history, delete_entry, clear_history
 from src.loading import format_size
 from src import tui
 
+_SORT_MODES = ["Urutan asli", "Terbaru dulu", "Terlama dulu",
+               "Ukuran terbesar", "Ukuran terkecil", "Judul A-Z", "Judul Z-A"]
+
 
 def _total_size(history):
     total = 0
@@ -15,6 +18,40 @@ def _total_size(history):
             except OSError:
                 pass
     return total
+
+
+def _file_mtime(item):
+    fn = item.get("filename")
+    try:
+        return os.path.getmtime(fn) if fn and os.path.exists(fn) else 0
+    except OSError:
+        return 0
+
+
+def _file_size(item):
+    fn = item.get("filename")
+    try:
+        return os.path.getsize(fn) if fn and os.path.exists(fn) else 0
+    except OSError:
+        return 0
+
+
+def _apply_sort(indexed, mode):
+    """indexed: list[(index_asli, item)]. Urutan asli dari download.json nggak diubah di disk,
+    ini cuma buat TAMPILAN -- delete tetap akurat karena index_asli ikut terbawa."""
+    if mode == "Terbaru dulu":
+        return sorted(indexed, key=lambda p: _file_mtime(p[1]), reverse=True)
+    if mode == "Terlama dulu":
+        return sorted(indexed, key=lambda p: _file_mtime(p[1]))
+    if mode == "Ukuran terbesar":
+        return sorted(indexed, key=lambda p: _file_size(p[1]), reverse=True)
+    if mode == "Ukuran terkecil":
+        return sorted(indexed, key=lambda p: _file_size(p[1]))
+    if mode == "Judul A-Z":
+        return sorted(indexed, key=lambda p: p[1].get("title", "").lower())
+    if mode == "Judul Z-A":
+        return sorted(indexed, key=lambda p: p[1].get("title", "").lower(), reverse=True)
+    return indexed
 
 
 def _konfirmasi_hapus_satu(stdscr, real_index, item):
@@ -57,9 +94,18 @@ def _hapus_semua_tui(stdscr):
         tui.message_box(stdscr, "Terhapus", f"{count} entri riwayat dihapus beserta filenya.")
 
 
+def _pilih_urutan_tui(stdscr, current):
+    start = _SORT_MODES.index(current) if current in _SORT_MODES else 0
+    idx = tui.menu(stdscr, "Urutkan Riwayat", _SORT_MODES, selected=start)
+    if idx is None:
+        return current
+    return _SORT_MODES[idx]
+
+
 def run_dashboard_menu(stdscr):
     """Loop dashboard TUI, dipanggil dari main dengan stdscr dari sesi curses yang sama."""
     keyword = None
+    sort_mode = "Urutan asli"
     while True:
         history = load_history()
         if not history:
@@ -72,11 +118,14 @@ def run_dashboard_menu(stdscr):
         else:
             indexed = list(enumerate(history))
 
+        indexed = _apply_sort(indexed, sort_mode)
+
         items = [f"{item.get('title', '?')}  [{item.get('resolution', '?')}]" for _, item in indexed]
         n_items = len(items)
 
         cari_label = f'🔍 Ganti/hapus filter ("{keyword}")' if keyword else "🔍 Cari/filter..."
-        actions = [cari_label, "🗑️  Hapus SEMUA riwayat", "Kembali"]
+        urut_label = f"↕️  Urutkan ({sort_mode})"
+        actions = [cari_label, urut_label, "🗑️  Hapus SEMUA riwayat", "Kembali"]
         full_items = items + actions
 
         msg = [f"Total: {len(history)} item · {format_size(_total_size(history))}"]
@@ -100,5 +149,7 @@ def run_dashboard_menu(stdscr):
             )
             if kata is not None:
                 keyword = kata.strip() or None
-        elif idx == n_items + 1:  # Hapus semua
+        elif idx == n_items + 1:  # Urutkan
+            sort_mode = _pilih_urutan_tui(stdscr, sort_mode)
+        elif idx == n_items + 2:  # Hapus semua
             _hapus_semua_tui(stdscr)
