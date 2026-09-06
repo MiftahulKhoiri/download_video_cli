@@ -15,6 +15,51 @@ os.environ.setdefault("ESCDELAY", "25")  # biar Esc nggak kerasa lag (default nc
 
 ESC = 27
 
+PAIR_NORMAL = 1    # putih di atas biru -- warna dasar kotak & background
+PAIR_SELECT = 2    # biru di atas putih -- item yang lagi disorot
+PAIR_TITLE = 3     # kuning di atas biru -- judul kotak
+
+_color_ready = None  # None = belum diinisialisasi, True/False setelah init_theme() dipanggil
+
+
+def init_theme(stdscr):
+    """
+    Aktifkan tema warna biru ala raspi-config. Dipanggil SEKALI pas sesi curses
+    dimulai. Aman kalau terminal nggak dukung warna -- otomatis fallback ke
+    tampilan monokrom (reverse-video) yang sudah ada, nggak pernah error.
+    """
+    global _color_ready
+    if _color_ready is not None:
+        return _color_ready
+    try:
+        curses.start_color()
+        curses.use_default_colors()
+        curses.init_pair(PAIR_NORMAL, curses.COLOR_WHITE, curses.COLOR_BLUE)
+        curses.init_pair(PAIR_SELECT, curses.COLOR_BLUE, curses.COLOR_WHITE)
+        curses.init_pair(PAIR_TITLE, curses.COLOR_YELLOW, curses.COLOR_BLUE)
+        _color_ready = curses.has_colors()
+    except curses.error:
+        _color_ready = False
+
+    if _color_ready:
+        try:
+            stdscr.bkgd(" ", curses.color_pair(PAIR_NORMAL))
+        except curses.error:
+            pass
+    return _color_ready
+
+
+def _normal_attr():
+    return curses.color_pair(PAIR_NORMAL) if _color_ready else curses.A_NORMAL
+
+
+def _select_attr():
+    return curses.color_pair(PAIR_SELECT) | curses.A_BOLD if _color_ready else curses.A_REVERSE
+
+
+def _title_attr():
+    return curses.color_pair(PAIR_TITLE) | curses.A_BOLD if _color_ready else curses.A_BOLD
+
 
 def _safe_curs_set(visibility):
     try:
@@ -29,7 +74,7 @@ def _center_title(win, title, width):
     text = f" {title} "
     x = max(1, (width - len(text)) // 2)
     try:
-        win.addstr(0, x, text[:max(0, width - x - 1)], curses.A_BOLD)
+        win.addstr(0, x, text[:max(0, width - x - 1)], _title_attr())
     except curses.error:
         pass  # nulis persis di sudut kanan-bawah kadang error di ncurses, aman diabaikan
 
@@ -43,6 +88,11 @@ def _new_box_at(stdscr, height, width, y0, x0, title=None):
     x0 = max(0, min(x0, max(0, w - width)))
     win = curses.newwin(height, width, y0, x0)
     win.keypad(True)
+    if _color_ready:
+        try:
+            win.bkgd(" ", _normal_attr())
+        except curses.error:
+            pass
     win.box()
     _center_title(win, title, width)
     return win
@@ -123,10 +173,15 @@ def menu(stdscr, title, items, selected=0, message=None, banner=None):
     scroll = 0
     _safe_curs_set(0)
     stdscr.erase()
+    if _color_ready:
+        try:
+            stdscr.bkgd(" ", _normal_attr())
+        except curses.error:
+            pass
     for i, line in enumerate(banner_lines):
         x = max(0, (w - len(line)) // 2)
         try:
-            stdscr.addstr(top + i, x, line[:max(0, w - x - 1)], curses.A_BOLD)
+            stdscr.addstr(top + i, x, line[:max(0, w - x - 1)], _title_attr())
         except curses.error:
             pass
     stdscr.refresh()
@@ -152,7 +207,7 @@ def menu(stdscr, title, items, selected=0, message=None, banner=None):
             idx = scroll + row
             if idx >= len(items):
                 break
-            attr = curses.A_REVERSE if idx == selected else curses.A_NORMAL
+            attr = _select_attr() if idx == selected else _normal_attr()
             text = items[idx][:inner_w].ljust(inner_w)
             try:
                 win.addstr(list_top + row, 2, text, attr)
