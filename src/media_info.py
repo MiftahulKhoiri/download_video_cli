@@ -1,6 +1,7 @@
 # src/media_info.py
 """Lapisan info: semua fungsi yang cuma NANYA ke yt-dlp, nggak download beneran."""
 import shutil
+import subprocess
 
 import yt_dlp
 
@@ -9,6 +10,20 @@ from src.loading import Spinner
 
 def is_ffmpeg_available():
     return shutil.which("ffmpeg") is not None
+
+
+def get_ffmpeg_version():
+    """Return versi ffmpeg (str) kalau terpasang, None kalau nggak ada / gagal dibaca."""
+    if not is_ffmpeg_available():
+        return None
+    try:
+        result = subprocess.run(["ffmpeg", "-version"], capture_output=True, text=True, timeout=5)
+        first_line = result.stdout.splitlines()[0] if result.stdout else ""
+        # contoh baris asli: "ffmpeg version 6.1.1-3ubuntu5 Copyright (c) 2000-2023 ..."
+        version = first_line.replace("ffmpeg version", "").split(" Copyright")[0].strip()
+        return version or None
+    except (subprocess.SubprocessError, OSError, IndexError):
+        return None
 
 
 def get_video_info(url, cookies_file=None):
