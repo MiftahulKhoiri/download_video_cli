@@ -15,18 +15,19 @@ os.environ.setdefault("ESCDELAY", "25")  # biar Esc nggak kerasa lag (default nc
 
 ESC = 27
 
-PAIR_NORMAL = 1    # putih di atas biru -- warna dasar kotak & background
-PAIR_SELECT = 2    # biru di atas putih -- item yang lagi disorot
-PAIR_TITLE = 3     # kuning di atas biru -- judul kotak
+PAIR_NORMAL = 1    # hitam di atas putih -- warna dasar kotak & background
+PAIR_SELECT = 2    # putih di atas biru -- item yang lagi disorot
+PAIR_TITLE = 3     # biru di atas putih -- judul kotak
 
 _color_ready = None  # None = belum diinisialisasi, True/False setelah init_theme() dipanggil
 
 
 def init_theme(stdscr):
     """
-    Aktifkan tema warna biru ala raspi-config. Dipanggil SEKALI pas sesi curses
-    dimulai. Aman kalau terminal nggak dukung warna -- otomatis fallback ke
-    tampilan monokrom (reverse-video) yang sudah ada, nggak pernah error.
+    Aktifkan tema warna latar putih/tulisan hitam. Dipanggil SEKALI pas sesi
+    curses dimulai. Aman kalau terminal nggak dukung warna -- otomatis
+    fallback ke tampilan monokrom (reverse-video) yang sudah ada, nggak
+    pernah error.
     """
     global _color_ready
     if _color_ready is not None:
@@ -34,9 +35,9 @@ def init_theme(stdscr):
     try:
         curses.start_color()
         curses.use_default_colors()
-        curses.init_pair(PAIR_NORMAL, curses.COLOR_WHITE, curses.COLOR_BLUE)
-        curses.init_pair(PAIR_SELECT, curses.COLOR_BLUE, curses.COLOR_WHITE)
-        curses.init_pair(PAIR_TITLE, curses.COLOR_YELLOW, curses.COLOR_BLUE)
+        curses.init_pair(PAIR_NORMAL, curses.COLOR_BLACK, curses.COLOR_WHITE)
+        curses.init_pair(PAIR_SELECT, curses.COLOR_WHITE, curses.COLOR_BLUE)
+        curses.init_pair(PAIR_TITLE, curses.COLOR_BLUE, curses.COLOR_WHITE)
         _color_ready = curses.has_colors()
     except curses.error:
         _color_ready = False
@@ -47,7 +48,6 @@ def init_theme(stdscr):
         except curses.error:
             pass
     return _color_ready
-
 
 def _normal_attr():
     return curses.color_pair(PAIR_NORMAL) if _color_ready else curses.A_NORMAL
