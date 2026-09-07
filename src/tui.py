@@ -15,39 +15,82 @@ os.environ.setdefault("ESCDELAY", "25")  # biar Esc nggak kerasa lag (default nc
 
 ESC = 27
 
-PAIR_NORMAL = 1    # hitam di atas putih -- warna dasar kotak & background
-PAIR_SELECT = 2    # putih di atas biru -- item yang lagi disorot
-PAIR_TITLE = 3     # biru di atas putih -- judul kotak
+PAIR_NORMAL = 1    # warna tulisan di atas warna latar -- dasar kotak & background
+PAIR_SELECT = 2    # dibalik dari PAIR_NORMAL -- item yang lagi disorot
+PAIR_TITLE = 3     # sama kayak PAIR_NORMAL, dipakai buat judul kotak (dicetak tebal)
+
+# Nama warna (Indonesia) yang bisa dipilih user buat latar & tulisan lewat
+# menu Pengaturan -- dibatasi ke 8 warna standar terminal biar aman di semua
+# perangkat (termasuk Termux), nggak butuh dukungan warna 256/truecolor.
+COLOR_NAME_MAP = {
+    "hitam": curses.COLOR_BLACK,
+    "merah": curses.COLOR_RED,
+    "hijau": curses.COLOR_GREEN,
+    "kuning": curses.COLOR_YELLOW,
+    "biru": curses.COLOR_BLUE,
+    "magenta": curses.COLOR_MAGENTA,
+    "cyan": curses.COLOR_CYAN,
+    "putih": curses.COLOR_WHITE,
+}
+COLOR_NAMES = list(COLOR_NAME_MAP.keys())  # urutan tampil di menu pilih warna
 
 _color_ready = None  # None = belum diinisialisasi, True/False setelah init_theme() dipanggil
+_current_bg = "putih"
+_current_text = "hitam"
 
 
-def init_theme(stdscr):
-    """
-    Aktifkan tema warna latar putih/tulisan hitam. Dipanggil SEKALI pas sesi
-    curses dimulai. Aman kalau terminal nggak dukung warna -- otomatis
-    fallback ke tampilan monokrom (reverse-video) yang sudah ada, nggak
-    pernah error.
-    """
-    global _color_ready
-    if _color_ready is not None:
-        return _color_ready
+def _apply_colors(stdscr, bg_name, text_name):
+    """Set ulang isi pasangan warna curses sesuai bg_name/text_name yang dipilih."""
+    global _current_bg, _current_text
     try:
+        if not curses.has_colors():
+            return False
         curses.start_color()
         curses.use_default_colors()
-        curses.init_pair(PAIR_NORMAL, curses.COLOR_BLACK, curses.COLOR_WHITE)
-        curses.init_pair(PAIR_SELECT, curses.COLOR_WHITE, curses.COLOR_BLUE)
-        curses.init_pair(PAIR_TITLE, curses.COLOR_BLUE, curses.COLOR_WHITE)
-        _color_ready = curses.has_colors()
+        bg = COLOR_NAME_MAP.get(bg_name, curses.COLOR_WHITE)
+        fg = COLOR_NAME_MAP.get(text_name, curses.COLOR_BLACK)
+        curses.init_pair(PAIR_NORMAL, fg, bg)
+        curses.init_pair(PAIR_SELECT, bg, fg)  # dibalik dari NORMAL -- otomatis selalu kontras
+        curses.init_pair(PAIR_TITLE, fg, bg)
+        _current_bg, _current_text = bg_name, text_name
     except curses.error:
-        _color_ready = False
+        return False
 
-    if _color_ready:
+    try:
+        stdscr.bkgd(" ", curses.color_pair(PAIR_NORMAL))
+    except curses.error:
+        pass
+    return True
+
+
+def init_theme(stdscr, bg_name="putih", text_name="hitam"):
+    """
+    Aktifkan tema warna sesuai pengaturan (default: latar putih, tulisan
+    hitam). Dipanggil SEKALI pas sesi curses dimulai. Aman kalau terminal
+    nggak dukung warna -- otomatis fallback ke tampilan monokrom
+    (reverse-video) yang sudah ada, nggak pernah error.
+    """
+    global _color_ready
+    _color_ready = _apply_colors(stdscr, bg_name, text_name)
+    return _color_ready
+
+
+def apply_theme(stdscr, bg_name, text_name):
+    """
+    Ganti tema warna di tengah sesi yang lagi jalan -- dipanggil dari menu
+    Pengaturan begitu user pilih warna baru, jadi kepakai LANGSUNG tanpa
+    perlu restart aplikasi.
+    """
+    global _color_ready
+    ok = _apply_colors(stdscr, bg_name, text_name)
+    _color_ready = ok
+    if ok:
         try:
-            stdscr.bkgd(" ", curses.color_pair(PAIR_NORMAL))
+            stdscr.clear()
+            stdscr.refresh()
         except curses.error:
             pass
-    return _color_ready
+    return ok
 
 def _normal_attr():
     return curses.color_pair(PAIR_NORMAL) if _color_ready else curses.A_NORMAL
