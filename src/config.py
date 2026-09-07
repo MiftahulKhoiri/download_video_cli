@@ -19,6 +19,8 @@ DEFAULT_CONFIG = {
     "organize_by": "none",          # none, channel, date -- susun folder hasil download
     "termux_shared_storage": False, # salin juga hasil download ke ~/storage/downloads (Termux)
     "rate_limit": None,             # batas kecepatan, contoh "2M" / "500K"; None = tanpa batas
+    "bg_color": "putih",            # warna latar tampilan menu (lihat tui.COLOR_NAMES)
+    "text_color": "hitam",          # warna tulisan tampilan menu (lihat tui.COLOR_NAMES)
 }
 
 _AUDIO_FORMATS = ["mp3", "m4a", "opus", "flac", "wav"]
@@ -73,6 +75,15 @@ def _validate_config(config):
 
     v = config.get("rate_limit")
     _cek("rate_limit", v is None or isinstance(v, str))
+
+    _cek("bg_color", config.get("bg_color") in tui.COLOR_NAMES)
+    _cek("text_color", config.get("text_color") in tui.COLOR_NAMES)
+    if config["bg_color"] == config["text_color"]:
+        # Dua-duanya lolos cek individual tapi identik (mis. config.json diedit
+        # manual) -- kalau dibiarkan tulisan jadi nggak kelihatan sama sekali.
+        config["text_color"] = DEFAULT_CONFIG["text_color"]
+        if "text_color" not in reset:
+            reset.append("text_color")
 
     return config, reset
 
@@ -147,6 +158,10 @@ def set_value(key, value):
 
 def _label_bool(v):
     return "aktif" if v else "nonaktif"
+
+
+def _label_color(name):
+    return (name or "").capitalize()
 
 
 # ---------- Handler tiap item pengaturan (satu fungsi = satu layar TUI) ----------
@@ -274,6 +289,44 @@ def _h_rate_limit(stdscr, config):
     set_value("rate_limit", raw or None)
 
 
+def _h_bg_color(stdscr, config):
+    current = config.get("bg_color", "putih")
+    text_now = config.get("text_color", "hitam")
+    names = tui.COLOR_NAMES
+    labels = [_label_color(n) for n in names]
+    start = names.index(current) if current in names else 0
+    idx = tui.menu(stdscr, "Warna Latar Belakang", labels, selected=start,
+                   message="Warna latar tampilan menu. Nggak boleh sama dengan warna tulisan.")
+    if idx is None:
+        return
+    chosen = names[idx]
+    if chosen == text_now:
+        tui.message_box(stdscr, "Tidak Bisa Dipakai",
+                        f"Warna latar nggak boleh sama dengan warna tulisan ({_label_color(text_now)}).")
+        return
+    set_value("bg_color", chosen)
+    tui.apply_theme(stdscr, chosen, text_now)
+
+
+def _h_text_color(stdscr, config):
+    current = config.get("text_color", "hitam")
+    bg_now = config.get("bg_color", "putih")
+    names = tui.COLOR_NAMES
+    labels = [_label_color(n) for n in names]
+    start = names.index(current) if current in names else 0
+    idx = tui.menu(stdscr, "Warna Tulisan", labels, selected=start,
+                   message="Warna teks menu. Nggak boleh sama dengan warna latar.")
+    if idx is None:
+        return
+    chosen = names[idx]
+    if chosen == bg_now:
+        tui.message_box(stdscr, "Tidak Bisa Dipakai",
+                        f"Warna tulisan nggak boleh sama dengan warna latar ({_label_color(bg_now)}).")
+        return
+    set_value("text_color", chosen)
+    tui.apply_theme(stdscr, bg_now, chosen)
+
+
 def _h_update_ytdlp(stdscr, config):
     from src.updater import check_for_update, update_yt_dlp
 
@@ -312,6 +365,7 @@ _HANDLERS = [
     _h_default_resolution, _h_audio_format, _h_mp3_quality, _h_embed_metadata,
     _h_subtitle_langs, _h_parallel_workers, _h_retry_count, _h_cookies_file,
     _h_notify_termux, _h_organize_by, _h_termux_shared_storage, _h_rate_limit,
+    _h_bg_color, _h_text_color,
     _h_update_ytdlp,
 ]
 
@@ -330,6 +384,8 @@ def _build_items(config):
         f"Susun folder hasil        : {config.get('organize_by')}",
         f"Salin ke storage Termux   : {_label_bool(config.get('termux_shared_storage'))}",
         f"Batas kecepatan unduh     : {config.get('rate_limit') or 'tanpa batas'}",
+        f"Warna latar belakang      : {_label_color(config.get('bg_color', 'putih'))}",
+        f"Warna tulisan             : {_label_color(config.get('text_color', 'hitam'))}",
         "Cek & update yt-dlp",
     ]
 
