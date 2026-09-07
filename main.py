@@ -102,7 +102,8 @@ def _show_about(stdscr):
 
 def _interactive_app(stdscr):
     """Satu sesi curses yang membungkus seluruh menu interaktif (Dashboard, Download, Pengaturan)."""
-    tui.init_theme(stdscr)
+    cfg = load_config()
+    tui.init_theme(stdscr, cfg.get("bg_color", "putih"), cfg.get("text_color", "hitam"))
     while True:
         idx = tui.menu(
             stdscr, "MENU UTAMA",
