@@ -1,6 +1,7 @@
 import curses
 import json
 import os
+import tempfile
 
 from src import tui
 
@@ -134,10 +135,33 @@ def check_config_integrity():
         save_config(fixed)
 
 
+def _atomic_write_json(path, data):
+    """
+    Tulis JSON ke `path` secara atomic: tulis dulu ke file sementara di folder
+    yang sama, baru dipindah lewat os.replace() ke nama aslinya. os.replace()
+    itu operasi atomik di level filesystem -- kalau proses mati/crash/force-close
+    di tengah penulisan, file ASLI tetap utuh (isi lama) atau LANGSUNG jadi versi
+    baru yang lengkap. Nggak ada kondisi "setengah nulis" yang bikin file kepotong/rusak.
+    """
+    folder = os.path.dirname(path) or "."
+    fd, tmp_path = tempfile.mkstemp(prefix=".tmp-", suffix=".json", dir=folder)
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as f:
+            json.dump(data, f, indent=2, ensure_ascii=False)
+            f.flush()
+            os.fsync(f.fileno())
+        os.replace(tmp_path, path)
+    except Exception:
+        try:
+            os.remove(tmp_path)
+        except OSError:
+            pass
+        raise
+
+
 def save_config(config):
     try:
-        with open(CONFIG_FILE, "w", encoding="utf-8") as f:
-            json.dump(config, f, indent=2, ensure_ascii=False)
+        _atomic_write_json(CONFIG_FILE, config)
         return True
     except OSError as e:
         print(f"⚠️  Gagal menyimpan {CONFIG_FILE}: {e}")
