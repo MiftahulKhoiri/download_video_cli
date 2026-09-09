@@ -34,12 +34,36 @@ def _build_format_string(target_height):
     return f"bestvideo[height<={target_height}]+bestaudio/best[height<={target_height}]"
 
 
-def _build_outtmpl(base_folder, organize_by):
+def _build_outtmpl(base_folder, organize_by, filename_tag=""):
+    """
+    filename_tag: disisipkan sebelum ekstensi file (mis. " [01.30-02.45]" buat hasil
+    potong durasi), biar nggak menimpa file versi penuh/potongan lain yang judulnya sama.
+    """
+    name_part = f"%(title)s{filename_tag}.%(ext)s"
     if organize_by == "channel":
-        return f"{base_folder}/%(uploader)s/%(title)s.%(ext)s"
+        return f"{base_folder}/%(uploader)s/{name_part}"
     if organize_by == "date":
-        return f"{base_folder}/%(upload_date>%Y-%m-%d)s/%(title)s.%(ext)s"
-    return f"{base_folder}/%(title)s.%(ext)s"
+        return f"{base_folder}/%(upload_date>%Y-%m-%d)s/{name_part}"
+    return f"{base_folder}/{name_part}"
+
+
+def _format_range_label(section_range):
+    """
+    'MM:SS-MM:SS' (atau 'HH:MM:SS-...' kalau >= 1 jam) dari section_range (start_sec, end_sec).
+    Return '' kalau section_range None (unduh penuh, nggak dipotong).
+    """
+    if not section_range:
+        return ""
+    start_sec, end_sec = section_range
+
+    def _fmt(sec):
+        sec = int(sec)
+        h, rem = divmod(sec, 3600)
+        m, s = divmod(rem, 60)
+        return f"{h:02d}:{m:02d}:{s:02d}" if h else f"{m:02d}:{s:02d}"
+
+    end_part = _fmt(end_sec) if end_sec is not None else "akhir"
+    return f"{_fmt(start_sec)}-{end_part}"
 
 
 def _parse_rate_limit(text):
@@ -209,6 +233,14 @@ def download_single(url, target_height=None, resolution_label="terbaik", info=No
     rate_limit = _parse_rate_limit(config.get("rate_limit"))
     termux_shared = config.get("termux_shared_storage", False)
 
+    range_label = _format_range_label(section_range)
+    if range_label:
+        # Potongan durasi dianggap versi BEDA dari video penuh (atau potongan lain
+        # dengan rentang waktu berbeda) -- biar nggak salah dilewati sebagai
+        # "duplikat", dan biar nggak saling menimpa file di disk.
+        resolution_label = f"{resolution_label} [{range_label}]"
+    filename_tag = f" [{range_label.replace(':', '.')}]" if range_label else ""
+
     folder = ensure_download_folder()
     printer = safe_print if quiet_progress else print
 
@@ -233,7 +265,7 @@ def download_single(url, target_height=None, resolution_label="terbaik", info=No
 
     ydl_opts = {
         "format": _build_format_string(target_height),
-        "outtmpl": _build_outtmpl(folder, organize_by),
+        "outtmpl": _build_outtmpl(folder, organize_by, filename_tag=filename_tag),
         "merge_output_format": "mp4",
         "continuedl": True,
         "progress_hooks": [noop_hook] if quiet_progress else [progress_hook],
@@ -365,6 +397,11 @@ def download_audio_single(url, info=None, audio_format=None, quality=None, confi
     video_id = info.get("id")
 
     resolution_label = _audio_resolution_label(audio_format, quality)
+    range_label = _format_range_label(section_range)
+    if range_label:
+        resolution_label = f"{resolution_label} [{range_label}]"
+    filename_tag = f" [{range_label.replace(':', '.')}]" if range_label else ""
+
     already, existing = is_already_downloaded(title, resolution_label, video_id=video_id)
     if already:
         printer(f"⚠️  '{title}' ({resolution_label}) sudah pernah diunduh sebelumnya (file: {existing.get('filename')}). Dilewati.")
@@ -380,7 +417,7 @@ def download_audio_single(url, info=None, audio_format=None, quality=None, confi
 
     ydl_opts = {
         "format": "bestaudio/best",
-        "outtmpl": _build_outtmpl(folder, organize_by),
+        "outtmpl": _build_outtmpl(folder, organize_by, filename_tag=filename_tag),
         "continuedl": True,
         "postprocessors": postprocessors,
         "progress_hooks": [noop_hook] if quiet_progress else [progress_hook],
