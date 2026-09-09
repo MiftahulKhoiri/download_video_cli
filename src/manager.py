@@ -1,5 +1,6 @@
 import os
 import json
+import tempfile
 import threading
 
 DOWNLOAD_DIR = "download"
@@ -10,6 +11,30 @@ HISTORY_FILE = os.path.join(DOWNLOAD_DIR, "download.json")
 # hampir bersamaan). Cuma efektif dalam SATU proses -- perlindungan lintas
 # proses (mode menu vs CLI/cron) sudah ditangani terpisah oleh AppLock (lock.py).
 _history_lock = threading.Lock()
+
+
+def _atomic_write_json(path, data):
+    """
+    Tulis JSON ke `path` secara atomic: tulis dulu ke file sementara di folder
+    yang sama, baru dipindah lewat os.replace() ke nama aslinya. os.replace()
+    itu operasi atomik di level filesystem -- kalau proses mati/crash/force-close
+    di tengah penulisan, file ASLI tetap utuh (isi lama) atau LANGSUNG jadi versi
+    baru yang lengkap. Nggak ada kondisi "setengah nulis" yang bikin file kepotong/rusak.
+    """
+    folder = os.path.dirname(path) or "."
+    fd, tmp_path = tempfile.mkstemp(prefix=".tmp-", suffix=".json", dir=folder)
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as f:
+            json.dump(data, f, indent=2, ensure_ascii=False)
+            f.flush()
+            os.fsync(f.fileno())
+        os.replace(tmp_path, path)
+    except Exception:
+        try:
+            os.remove(tmp_path)
+        except OSError:
+            pass
+        raise
 
 
 def ensure_download_folder():
@@ -35,8 +60,7 @@ def save_history(data):
     """Simpan riwayat ke disk. Return True kalau berhasil, False kalau gagal (tanpa crash)."""
     ensure_download_folder()
     try:
-        with open(HISTORY_FILE, "w", encoding="utf-8") as f:
-            json.dump(data, f, indent=2, ensure_ascii=False)
+        _atomic_write_json(HISTORY_FILE, data)
         return True
     except OSError as e:
         print(f"⚠️  Gagal menyimpan riwayat download ke {HISTORY_FILE}: {e}")
