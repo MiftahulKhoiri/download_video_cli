@@ -26,13 +26,38 @@ def get_ffmpeg_version():
         return None
 
 
-def get_video_info(url, cookies_file=None):
-    with Spinner("🔍 Mengambil info video..."):
-        ydl_opts = {"quiet": True, "no_warnings": True}
-        if cookies_file:
-            ydl_opts["cookiefile"] = cookies_file
-        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-            return ydl.extract_info(url, download=False)
+def _fetch_info_with_retry(ydl_opts, url, spinner_message, retries=1):
+    """
+    Jalankan extract_info(download=False) dengan retry otomatis kalau gagal
+    (mis. koneksi putus sesaat pas baru mau ambil info/metadata) -- semangatnya
+    sama kayak retry di proses download beneran (_run_download di download_core.py),
+    tapi buat panggilan info-only ini (get_video_info & expand_playlist).
+
+    Tiap percobaan dapat Spinner-nya sendiri yang dibuka-tutup bersih, dan pesan
+    retry dicetak SETELAH spinner ditutup (bukan pas animasinya lagi jalan) biar
+    nggak tabrakan/nge-garbled tampilannya di terminal.
+    """
+    retries = max(1, int(retries or 1))
+    last_exc = None
+    for attempt in range(1, retries + 1):
+        try:
+            with Spinner(spinner_message):
+                with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+                    return ydl.extract_info(url, download=False)
+        except KeyboardInterrupt:
+            raise
+        except Exception as e:
+            last_exc = e
+            if attempt < retries:
+                print(f"⚠️  Percobaan {attempt}/{retries} gagal ambil info ({e}). Mencoba lagi...")
+    raise last_exc
+
+
+def get_video_info(url, cookies_file=None, retries=1):
+    ydl_opts = {"quiet": True, "no_warnings": True}
+    if cookies_file:
+        ydl_opts["cookiefile"] = cookies_file
+    return _fetch_info_with_retry(ydl_opts, url, "🔍 Mengambil info video...", retries=retries)
 
 
 def _video_needs_merge(info):
@@ -48,18 +73,16 @@ def _video_needs_merge(info):
     )
 
 
-def expand_playlist(url, cookies_file=None):
+def expand_playlist(url, cookies_file=None, retries=1):
     """
     Kalau url adalah playlist, kembalikan list URL video di dalamnya
     (pakai extract_flat biar cepat, nggak fetch semua format tiap video).
     Kalau url video tunggal, kembalikan [url] apa adanya.
     """
-    with Spinner("🔍 Memeriksa URL / playlist..."):
-        ydl_opts = {"quiet": True, "no_warnings": True, "extract_flat": "in_playlist"}
-        if cookies_file:
-            ydl_opts["cookiefile"] = cookies_file
-        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-            info = ydl.extract_info(url, download=False)
+    ydl_opts = {"quiet": True, "no_warnings": True, "extract_flat": "in_playlist"}
+    if cookies_file:
+        ydl_opts["cookiefile"] = cookies_file
+    info = _fetch_info_with_retry(ydl_opts, url, "🔍 Memeriksa URL / playlist...", retries=retries)
 
     if not info or (info.get("_type") != "playlist" and "entries" not in info):
         return [url]
