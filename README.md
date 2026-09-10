@@ -42,4 +42,31 @@ Script Python3 untuk mengunduh video dan audio dari **YouTube** dan **X (Twitter
 - Folder `download/` dibuat otomatis jika belum ada
 
 ## 📁 Struktur Proyek
+project/
+├── main.py                    # Menu utama + mode CLI non-interaktif
+├── requirements.txt
+├── README.md
+├── config.json                 # Dibuat otomatis saat pengaturan pertama kali diubah
+├── src/
+│   ├── init.py
+│   ├── tui.py                # Widget menu/input ala raspi-config (curses), tema warna
+│   ├── dashboard.py          # Tampilan dashboard/riwayat, total ukuran, cari/filter/urutkan, hapus entri
+│   ├── download_menu.py      # Alur menu interaktif buat download (pilih resolusi/format/potong durasi, dll)
+│   ├── download_core.py      # Mesin download inti: single/batch/paralel/retry/potong durasi/verifikasi
+│   ├── media_info.py         # Ambil info video & expand playlist (dengan retry)
+│   ├── manager.py            # Kelola download.json (riwayat) + folder tujuan hasil download
+│   ├── config.py             # Baca/simpan pengaturan (config.json) + menu Pengaturan
+│   ├── loading.py            # Progress bar, spinner, print thread-safe, format ukuran file
+│   ├── updater.py            # Cek & update yt-dlp
+│   ├── logger.py             # Logger ke download/app.log
+│   ├── lock.py               # Cegah proses ganda jalan bersamaan
+│   ├── notify.py             # Notifikasi Android + wake-lock via Termux:API
+│   └── logo.py                 # ASCII logo & animasi intro
+└── download/                    # Folder INTERNAL app, dibuat otomatis
+├── download.json            # Riwayat download
+├── app.log                  # Log aktivitas & error
+├── .lock                    # Lock sementara selagi aplikasi jalan
+└──          # Video/audio hasil unduhan -- ADA DI SINI cuma kalau
+# "Folder Penyimpanan" di Pengaturan dikosongkan (default)
+
 
