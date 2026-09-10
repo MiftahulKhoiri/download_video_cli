@@ -138,9 +138,10 @@ def _resolve_urls_and_info(stdscr, raw_urls, config, label):
     try:
         with tui.suspend(stdscr):
             print(f"===== {label} =====")
+            retries = config.get("retry_count", 1)
             urls = []
             for u in raw_urls:
-                expanded = expand_playlist(u, cookies_file=config.get("cookies_file"))
+                expanded = expand_playlist(u, cookies_file=config.get("cookies_file"), retries=retries)
                 if len(expanded) > 1:
                     print(f"📋 Playlist terdeteksi ({u}): {len(expanded)} item ditambahkan.")
                 urls.extend(expanded)
@@ -150,7 +151,7 @@ def _resolve_urls_and_info(stdscr, raw_urls, config, label):
                 input("\nTekan Enter untuk lanjut...")
                 return None
 
-            info = get_video_info(urls[0], cookies_file=config.get("cookies_file"))
+            info = get_video_info(urls[0], cookies_file=config.get("cookies_file"), retries=retries)
             formats = get_available_resolutions(info)
             return urls, info, formats
     except Exception as e:
@@ -228,7 +229,8 @@ def menu_download_mp3_1(stdscr):
     try:
         with tui.suspend(stdscr):
             print("===== DOWNLOAD AUDIO (1 ITEM) =====")
-            urls = expand_playlist(url.strip(), cookies_file=config.get("cookies_file"))
+            urls = expand_playlist(url.strip(), cookies_file=config.get("cookies_file"),
+                                    retries=config.get("retry_count", 1))
             if len(urls) > 1:
                 print(f"\n📋 Playlist terdeteksi: {len(urls)} audio akan diunduh.")
     except Exception as e:
@@ -274,9 +276,10 @@ def menu_download_mp3_banyak(stdscr):
     try:
         with tui.suspend(stdscr):
             print("===== DOWNLOAD AUDIO (BANYAK ITEM) =====")
+            retries = config.get("retry_count", 1)
             urls = []
             for u in urls_input:
-                expanded = expand_playlist(u, cookies_file=config.get("cookies_file"))
+                expanded = expand_playlist(u, cookies_file=config.get("cookies_file"), retries=retries)
                 if len(expanded) > 1:
                     print(f"📋 Playlist terdeteksi ({u}): {len(expanded)} audio ditambahkan.")
                 urls.extend(expanded)
