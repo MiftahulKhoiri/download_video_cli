@@ -69,7 +69,8 @@ def run_cli(args):
 
     all_urls = []
     for u in raw_urls:
-        all_urls.extend(expand_playlist(u, cookies_file=config.get("cookies_file")))
+        all_urls.extend(expand_playlist(u, cookies_file=config.get("cookies_file"),
+                                         retries=config.get("retry_count", 1)))
 
     if not all_urls:
         print("Tidak ada URL yang bisa diproses.")
