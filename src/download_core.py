@@ -392,7 +392,7 @@ def download_audio_single(url, info=None, audio_format=None, quality=None, confi
         return False
 
     if info is None:
-        info = get_video_info(url, cookies_file=cookies_file)
+        info = get_video_info(url, cookies_file=cookies_file, retries=retries)
     title = info.get("title", "audio")
     video_id = info.get("id")
 
