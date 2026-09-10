@@ -10,7 +10,7 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 import yt_dlp
 from yt_dlp.utils import download_range_func
 
-from src.manager import ensure_download_folder, is_already_downloaded, save_file_record
+from src.manager import ensure_download_folder, ensure_output_folder, is_already_downloaded, save_file_record
 from src.media_info import is_ffmpeg_available, get_video_info, _video_needs_merge
 from src.loading import (
     progress_hook, postprocessor_hook, reset_progress,
@@ -123,12 +123,18 @@ def _cleanup_partial_files(folder):
         pass
 
 
-def _run_download(ydl_opts, url, expected_ext, retries):
+def _run_download(ydl_opts, url, expected_ext, retries, folder=None):
     """
     Jalankan extract_info(download=True) dengan retry otomatis kalau gagal.
     Return (result_info, filepath). Melempar exception terakhir kalau semua percobaan gagal.
+
+    folder: folder TUJUAN hasil download (bisa folder kustom), dipakai buat
+    bersih-bersih file .part/.ytdl kalau dibatalkan (Ctrl+C) di tengah jalan.
+    Default None -> folder internal default (buat kompatibilitas kalau ada
+    pemanggil lama yang belum kasih folder eksplisit).
     """
     retries = max(1, retries)
+    cleanup_folder = folder or ensure_download_folder()
     last_exc = None
     for attempt in range(1, retries + 1):
         try:
@@ -137,7 +143,7 @@ def _run_download(ydl_opts, url, expected_ext, retries):
                 filename = _resolve_final_filepath(ydl, result, expected_ext=expected_ext)
             return result, filename
         except KeyboardInterrupt:
-            _cleanup_partial_files(ensure_download_folder())
+            _cleanup_partial_files(cleanup_folder)
             print("\n⏹️  Download dibatalkan (Ctrl+C), file sementara sudah dibersihkan.")
             raise
         except Exception as e:
@@ -241,8 +247,8 @@ def download_single(url, target_height=None, resolution_label="terbaik", info=No
         resolution_label = f"{resolution_label} [{range_label}]"
     filename_tag = f" [{range_label.replace(':', '.')}]" if range_label else ""
 
-    folder = ensure_download_folder()
     printer = safe_print if quiet_progress else print
+    folder = ensure_output_folder(config.get("download_folder"), printer=printer)
 
     if info is None:
         info = get_video_info(url, cookies_file=cookies_file, retries=retries)
@@ -295,7 +301,7 @@ def download_single(url, target_height=None, resolution_label="terbaik", info=No
     log.info(f"Mulai unduh: {title} ({url}) [{resolution_label}]")
 
     with notify.wake_lock():
-        result, filename = _run_download(ydl_opts, url, expected_ext="mp4", retries=retries)
+        result, filename = _run_download(ydl_opts, url, expected_ext="mp4", retries=retries, folder=folder)
 
         valid, alasan = _verify_downloaded_file(filename)
         if not valid:
@@ -317,7 +323,7 @@ def download_many(url_list, target_height=None, resolution_label="terbaik", firs
     config = config or load_config()
     workers = max(1, int(config.get("parallel_workers", 1) or 1))
 
-    folder = ensure_download_folder()
+    folder = ensure_output_folder(config.get("download_folder"))
     if not _check_disk_space(folder):
         return {"berhasil": 0, "dilewati": 0, "gagal": 0}
 
@@ -383,8 +389,8 @@ def download_audio_single(url, info=None, audio_format=None, quality=None, confi
     embed_metadata = config.get("embed_metadata", True)
     termux_shared = config.get("termux_shared_storage", False)
 
-    folder = ensure_download_folder()
     printer = safe_print if quiet_progress else print
+    folder = ensure_output_folder(config.get("download_folder"), printer=printer)
 
     if not is_ffmpeg_available():
         printer("❌ Convert audio butuh ffmpeg, tapi belum terpasang. Dilewati.")
@@ -445,7 +451,7 @@ def download_audio_single(url, info=None, audio_format=None, quality=None, confi
     log.info(f"Mulai unduh audio: {title} ({url}) [{resolution_label}]")
 
     with notify.wake_lock():
-        result, filename = _run_download(ydl_opts, url, expected_ext=audio_format, retries=retries)
+        result, filename = _run_download(ydl_opts, url, expected_ext=audio_format, retries=retries, folder=folder)
 
         valid, alasan = _verify_downloaded_file(filename)
         if not valid:
@@ -467,7 +473,7 @@ def download_audio_many(url_list, first_info=None, config=None):
     config = config or load_config()
     workers = max(1, int(config.get("parallel_workers", 1) or 1))
 
-    folder = ensure_download_folder()
+    folder = ensure_output_folder(config.get("download_folder"))
     if not _check_disk_space(folder):
         return {"berhasil": 0, "dilewati": 0, "gagal": 0}
 
