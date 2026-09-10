@@ -38,10 +38,39 @@ def _atomic_write_json(path, data):
 
 
 def ensure_download_folder():
-    """Buat folder download jika belum ada."""
+    """Buat folder download (folder INTERNAL app: tempat download.json/.lock/app.log) jika belum ada."""
     if not os.path.exists(DOWNLOAD_DIR):
         os.makedirs(DOWNLOAD_DIR)
     return DOWNLOAD_DIR
+
+
+def ensure_output_folder(custom_path=None, printer=print):
+    """
+    Pastikan folder TUJUAN hasil download (video/audio beneran) ada & bisa
+    ditulisi, lalu return path-nya. Beda dari ensure_download_folder(): itu
+    folder internal app yang TETAP di "download/" (buat download.json, .lock,
+    app.log), sedangkan ini folder tempat FILE HASIL DOWNLOAD ditaruh -- bisa
+    dikustomisasi lewat pengaturan "Folder Penyimpanan".
+
+    custom_path kosong/None -> pakai folder default yang sama kayak sebelumnya
+    (DOWNLOAD_DIR). Kalau folder custom gagal dibuat/ditulisi (path salah, SD
+    card belum ke-mount, izin ditolak, dll), otomatis fallback ke folder
+    default + kasih warning -- biar download nggak gagal total gara-gara satu
+    pengaturan yang keliru.
+    """
+    if not custom_path:
+        return ensure_download_folder()
+
+    folder = os.path.expanduser(str(custom_path))
+    try:
+        os.makedirs(folder, exist_ok=True)
+        fd, probe_path = tempfile.mkstemp(prefix=".write_test-", dir=folder)
+        os.close(fd)
+        os.remove(probe_path)
+        return folder
+    except OSError as e:
+        printer(f"⚠️  Folder penyimpanan '{folder}' nggak bisa dipakai ({e}). Pakai folder default '{DOWNLOAD_DIR}/' dulu.")
+        return ensure_download_folder()
 
 
 def load_history():
