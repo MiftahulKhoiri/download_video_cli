@@ -4,6 +4,7 @@ import os
 import tempfile
 
 from src import tui
+from src.manager import DOWNLOAD_DIR
 
 CONFIG_FILE = "config.json"
 
@@ -17,6 +18,7 @@ DEFAULT_CONFIG = {
     "retry_count": 1,               # jumlah percobaan per video (1 = tanpa retry)
     "cookies_file": None,           # path ke cookies.txt (format Netscape), None = tidak dipakai
     "notify_termux": True,          # kirim notifikasi Termux kalau tersedia
+    "download_folder": None,        # folder tujuan hasil download; None = folder default "download/"
     "organize_by": "none",          # none, channel, date -- susun folder hasil download
     "termux_shared_storage": False, # salin juga hasil download ke ~/storage/downloads (Termux)
     "rate_limit": None,             # batas kecepatan, contoh "2M" / "500K"; None = tanpa batas
@@ -69,6 +71,9 @@ def _validate_config(config):
     _cek("cookies_file", v is None or isinstance(v, str))
 
     _cek("notify_termux", isinstance(config.get("notify_termux"), bool))
+
+    v = config.get("download_folder")
+    _cek("download_folder", v is None or isinstance(v, str))
 
     _cek("organize_by", config.get("organize_by") in _ORGANIZE_OPTIONS)
 
@@ -286,6 +291,20 @@ def _h_notify_termux(stdscr, config):
         set_value("notify_termux", idx == 0)
 
 
+def _h_download_folder(stdscr, config):
+    current = config.get("download_folder") or ""
+    raw = tui.input_box(
+        stdscr, "Folder Penyimpanan",
+        [f"Path folder tujuan hasil download (video/audio).",
+         f"Kosongkan = pakai folder default '{DOWNLOAD_DIR}/' seperti sebelumnya."],
+        initial=current,
+    )
+    if raw is None:
+        return
+    raw = raw.strip()
+    set_value("download_folder", raw or None)
+
+
 def _h_organize_by(stdscr, config):
     current = config.get("organize_by", "none")
     start = _ORGANIZE_OPTIONS.index(current) if current in _ORGANIZE_OPTIONS else 0
@@ -388,7 +407,7 @@ def _h_update_ytdlp(stdscr, config):
 _HANDLERS = [
     _h_default_resolution, _h_audio_format, _h_mp3_quality, _h_embed_metadata,
     _h_subtitle_langs, _h_parallel_workers, _h_retry_count, _h_cookies_file,
-    _h_notify_termux, _h_organize_by, _h_termux_shared_storage, _h_rate_limit,
+    _h_notify_termux, _h_download_folder, _h_organize_by, _h_termux_shared_storage, _h_rate_limit,
     _h_bg_color, _h_text_color,
     _h_update_ytdlp,
 ]
@@ -405,6 +424,7 @@ def _build_items(config):
         f"Jumlah percobaan ulang    : {config.get('retry_count')}",
         f"File cookies              : {config.get('cookies_file') or 'tidak dipakai'}",
         f"Notifikasi Termux         : {_label_bool(config.get('notify_termux'))}",
+        f"Folder penyimpanan hasil  : {config.get('download_folder') or f'{DOWNLOAD_DIR}/ (default)'}",
         f"Susun folder hasil        : {config.get('organize_by')}",
         f"Salin ke storage Termux   : {_label_bool(config.get('termux_shared_storage'))}",
         f"Batas kecepatan unduh     : {config.get('rate_limit') or 'tanpa batas'}",
