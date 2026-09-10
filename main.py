@@ -37,6 +37,8 @@ def build_arg_parser():
                          help="Kode bahasa subtitle yang mau diunduh, pisah koma (misal id,en).")
     parser.add_argument("--cookies", default=None, metavar="FILE",
                          help="Path ke file cookies.txt (override pengaturan tersimpan).")
+    parser.add_argument("--output-dir", default=None, metavar="FOLDER",
+                         help="Folder tujuan hasil download (override pengaturan tersimpan).")
     parser.add_argument("--rate-limit", default=None, metavar="2M/500K",
                          help="Batas kecepatan download (override pengaturan tersimpan).")
     return parser
@@ -50,6 +52,8 @@ def run_cli(args):
         config["retry_count"] = args.retry
     if args.cookies is not None:
         config["cookies_file"] = args.cookies
+    if args.output_dir is not None:
+        config["download_folder"] = args.output_dir
     if args.audio_format is not None:
         config["audio_format"] = args.audio_format
     if args.quality is not None:
