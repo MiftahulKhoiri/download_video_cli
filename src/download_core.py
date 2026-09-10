@@ -245,7 +245,7 @@ def download_single(url, target_height=None, resolution_label="terbaik", info=No
     printer = safe_print if quiet_progress else print
 
     if info is None:
-        info = get_video_info(url, cookies_file=cookies_file)
+        info = get_video_info(url, cookies_file=cookies_file, retries=retries)
     title = info.get("title", "video")
     video_id = info.get("id")
 
