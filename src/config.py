@@ -4,9 +4,8 @@ import os
 import tempfile
 
 from src import tui
-from src.manager import DOWNLOAD_DIR
-
-CONFIG_FILE = "config.json"
+from src.paths import CONFIG_FILE
+from src.utils import parse_rate_limit, backup_corrupt_file
 
 DEFAULT_CONFIG = {
     "default_resolution": None,     # None = selalu tanya; atau angka misal 720
@@ -80,7 +79,7 @@ def _validate_config(config):
     _cek("termux_shared_storage", isinstance(config.get("termux_shared_storage"), bool))
 
     v = config.get("rate_limit")
-    _cek("rate_limit", v is None or isinstance(v, str))
+    _cek("rate_limit", v is None or (isinstance(v, str) and parse_rate_limit(v) is not None))
 
     _cek("bg_color", config.get("bg_color") in tui.COLOR_NAMES)
     _cek("text_color", config.get("text_color") in tui.COLOR_NAMES)
@@ -124,12 +123,19 @@ def check_config_integrity():
     try:
         with open(CONFIG_FILE, "r", encoding="utf-8") as f:
             data = json.load(f)
-    except (json.JSONDecodeError, OSError):
-        print(f"⚠️  {CONFIG_FILE} rusak/nggak valid, pakai pengaturan default sampai diubah lagi lewat menu Pengaturan.")
+    except OSError as e:
+        print(f"⚠️  Gagal membaca {CONFIG_FILE} ({e}), pakai pengaturan default.")
+        return
+    except json.JSONDecodeError:
+        backup = backup_corrupt_file(CONFIG_FILE)
+        note = f" File lama diselamatkan ke '{os.path.basename(backup)}'." if backup else ""
+        print(f"⚠️  {CONFIG_FILE} rusak/nggak valid, pakai pengaturan default.{note}")
         return
 
     if not isinstance(data, dict):
-        print(f"⚠️  Isi {CONFIG_FILE} bukan format yang diharapkan, pakai pengaturan default.")
+        backup = backup_corrupt_file(CONFIG_FILE)
+        note = f" File lama diselamatkan ke '{os.path.basename(backup)}'." if backup else ""
+        print(f"⚠️  Isi {CONFIG_FILE} bukan format yang diharapkan, pakai pengaturan default.{note}")
         return
 
     merged = dict(DEFAULT_CONFIG)
@@ -205,8 +211,8 @@ def _h_default_resolution(stdscr, config):
     if raw is None:
         return
     raw = raw.strip()
-    if raw and not raw.isdigit():
-        tui.message_box(stdscr, "Nilai Tidak Valid", "Harus berupa angka, atau dikosongkan.")
+    if raw and not (raw.isdigit() and int(raw) > 0):
+        tui.message_box(stdscr, "Nilai Tidak Valid", "Harus angka lebih dari 0, atau dikosongkan.")
         return
     set_value("default_resolution", int(raw) if raw else None)
 
@@ -295,8 +301,8 @@ def _h_download_folder(stdscr, config):
     current = config.get("download_folder") or ""
     raw = tui.input_box(
         stdscr, "Folder Penyimpanan",
-        [f"Path folder tujuan hasil download (video/audio).",
-         f"Kosongkan = pakai folder default '{DOWNLOAD_DIR}/' seperti sebelumnya."],
+        ["Path folder tujuan hasil download (video/audio).",
+         "Kosongkan = pakai folder default 'download/' seperti sebelumnya."],
         initial=current,
     )
     if raw is None:
@@ -329,6 +335,9 @@ def _h_rate_limit(stdscr, config):
     if raw is None:
         return
     raw = raw.strip()
+    if raw and parse_rate_limit(raw) is None:
+        tui.message_box(stdscr, "Nilai Tidak Valid", "Format salah. Contoh: 2M, 500K, 1.5M. Kosongkan = tanpa batas.")
+        return
     set_value("rate_limit", raw or None)
 
 
@@ -424,7 +433,7 @@ def _build_items(config):
         f"Jumlah percobaan ulang    : {config.get('retry_count')}",
         f"File cookies              : {config.get('cookies_file') or 'tidak dipakai'}",
         f"Notifikasi Termux         : {_label_bool(config.get('notify_termux'))}",
-        f"Folder penyimpanan hasil  : {config.get('download_folder') or f'{DOWNLOAD_DIR}/ (default)'}",
+        f"Folder penyimpanan hasil  : {config.get('download_folder') or 'download/ (default)'}",
         f"Susun folder hasil        : {config.get('organize_by')}",
         f"Salin ke storage Termux   : {_label_bool(config.get('termux_shared_storage'))}",
         f"Batas kecepatan unduh     : {config.get('rate_limit') or 'tanpa batas'}",
