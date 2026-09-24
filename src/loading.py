@@ -119,8 +119,8 @@ def progress_hook(d):
 _PP_MESSAGES = {
     "Merger": (f"{Fore.CYAN}🔗 Menggabungkan video & audio...{Style.RESET_ALL}",
                f"{Fore.GREEN}✅ Video & audio berhasil digabung.{Style.RESET_ALL}"),
-    "FFmpegExtractAudio": (f"{Fore.CYAN}🎵 Mengonversi ke MP3...{Style.RESET_ALL}",
-                            f"{Fore.GREEN}✅ Konversi ke MP3 selesai.{Style.RESET_ALL}"),
+    "FFmpegExtractAudio": (f"{Fore.CYAN}🎵 Mengonversi audio...{Style.RESET_ALL}",
+                            f"{Fore.GREEN}✅ Konversi audio selesai.{Style.RESET_ALL}"),
 }
 
 
