@@ -22,10 +22,10 @@ def show_logo():
 # ---------- Logo pembuka animasi: efek hujan digital (Matrix) ----------
 
 _LOGO_LINES = [
-    " __    __   __    __    {●}",
-    " \\ \ / /  /  \  /  \   {●}",
-    "  \\ V /  / /\ \/ /\ \  {●}",
-    "   \\_/  /_/  \__/  \_\ {●}",
+    r" __    __   __    __    {●}",
+    r" \ \ / /  /  \  /  \   {●}",
+    r"  \ V /  / /\ \/ /\ \  {●}",
+    r"   \_/  /_/  \__/  \_\ {●}",
 ]
 
 _TAGLINE = " Video & MP3 Downloader"
