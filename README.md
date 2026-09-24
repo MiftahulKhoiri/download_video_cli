@@ -7,22 +7,22 @@ Script Python3 untuk mengunduh video dan audio dari **YouTube** dan **X (Twitter
 **Download**
 - Video dari YouTube, X (Twitter), dan situs lain yang didukung `yt-dlp`
 - Audio dalam **5 format**: MP3, M4A, OPUS, FLAC, WAV — kualitas bisa dipilih (128/192/256/320 kbps untuk format lossy)
-- **Playlist otomatis di-expand** jadi daftar video/audio individual
+- **Playlist otomatis di-expand** jadi daftar video/audio individual. URL video yang nyempil di playlist (`watch?v=..&list=..`) ditanyakan dulu di menu (unduh semua, atau videonya saja); di mode CLI pakai `--no-playlist`
 - **Potong ke rentang waktu tertentu** (mis. cuma ambil menit 1:30–2:45), tanpa unduh video penuh — hasil potongan dicatat & disimpan terpisah dari video penuh/potongan lain (rentang waktu ikut jadi bagian nama file & penanda riwayat), jadi nggak saling dianggap duplikat atau saling menimpa
 - Pilih resolusi video sebelum mengunduh (atau otomatis kualitas terbaik / default tersimpan)
 - Mode 1 item, banyak (batch, bisa ketik manual atau **import dari file `.txt`**), atau **download paralel**
 - **Retry otomatis** kalau gagal — berlaku baik pas ambil info/metadata video maupun pas proses download filenya
 - **Subtitle/caption** opsional (manual + auto-generated), bisa multi-bahasa
 - **Embed thumbnail + metadata** (judul dll) otomatis ke file audio
-- Batas kecepatan download (rate limit) opsional
+- Batas kecepatan download (rate limit) opsional (contoh `2M`, `500K`, `2MB/s`) — di mode paralel, batasnya dibagi rata ke tiap download, jadi totalnya tetap sesuai pengaturan
 
 **Keandalan**
 - **Verifikasi file hasil download** — deteksi file 0 byte / rusak (pakai `ffprobe` kalau tersedia) sebelum disimpan ke riwayat, jadi file yang gagal nggak dianggap sukses
-- **Penyimpanan riwayat & pengaturan tahan crash** — `download.json` dan `config.json` ditulis secara atomic (lewat file sementara + rename), jadi nggak bakal kepotong/rusak walau proses mati mendadak di tengah penulisan (mati listrik, force-close, dll)
+- **Penyimpanan riwayat & pengaturan tahan crash** — `download.json` dan `config.json` ditulis secara atomic (lewat file sementara + rename), jadi nggak bakal kepotong/rusak walau proses mati mendadak di tengah penulisan (mati listrik, force-close, dll). Kalau file-nya ternyata sudah rusak, disimpan dulu sebagai `*.corrupt-<waktu>` sebelum dibuat ulang — riwayat lama nggak hilang begitu saja
 - **Cek ruang disk kosong** sebelum mulai download banyak/paralel — batal otomatis kalau kritis, warning kalau menipis (nggak pernah nge-block nunggu input, aman buat cron)
-- **Lock file** — cegah dua proses (mode menu & mode CLI, atau dua CLI/cron sekaligus) jalan bersamaan dan rebutan tulis `download.json`
+- **Lock file** — cegah dua proses (mode menu & mode CLI, atau dua CLI/cron sekaligus) jalan bersamaan dan rebutan tulis `download.json`. Dikunci lewat sistem operasi (`flock`), jadi otomatis lepas walau proses crash/di-kill — nggak ada lock "nyangkut"
 - **Wake-lock Termux yang akurat di mode paralel** — HP nggak bakal ketiduran duluan di tengah proses walau ada beberapa download paralel yang selesai di waktu berbeda-beda (lock baru dilepas setelah SEMUA proses dalam batch selesai)
-- Ctrl+C ditangani rapi — file `.part`/`.ytdl` sisa otomatis dibersihkan, bukan nyangkut jadi sampah
+- Ctrl+C ditangani rapi — file `.part`/`.ytdl` sisa milik download yang dibatalkan otomatis dibersihkan (file lain di folder tujuan nggak disentuh). Di mode paralel, antrean langsung dihentikan dan download yang lagi jalan ikut berhenti. Di mode menu, Ctrl+C/error pas download cuma membatalkan download itu dan kembali ke menu
 
 **Organisasi & riwayat**
 - **Folder penyimpanan hasil download bisa dikustomisasi** — atur lewat menu Pengaturan atau flag `--output-dir`, kosongkan buat pakai folder default `download/`. Kalau folder yang diisi ternyata bermasalah (path salah, storage belum ke-mount, izin ditolak), otomatis fallback ke folder default + kasih peringatan, jadi download nggak gagal total gara-gara satu pengaturan yang keliru
@@ -63,11 +63,13 @@ project/
 │   ├── logger.py             # Logger ke download/app.log
 │   ├── lock.py               # Cegah proses ganda jalan bersamaan
 │   ├── notify.py             # Notifikasi Android + wake-lock via Termux:API
-│   └── logo.py                 # ASCII logo & animasi intro
+│   ├── logo.py                 # ASCII logo & animasi intro
+│   ├── paths.py              # Lokasi file internal, dihitung dari folder proyek
+│   └── utils.py              # Fungsi kecil bersama (parse rate limit, buang kode ANSI, backup file rusak)
 └── download/                    # Folder INTERNAL app, dibuat otomatis
     ├── download.json            # Riwayat download
     ├── app.log                  # Log aktivitas & error
-    ├── .lock                    # Lock sementara selagi aplikasi jalan
+    ├── .lock                    # File lock (dikunci selagi aplikasi jalan)
     └── <hasil download>         # Video/audio hasil unduhan -- ADA DI SINI cuma kalau
                                   # "Folder Penyimpanan" di Pengaturan dikosongkan (default)
 ```
@@ -76,7 +78,9 @@ project/
 
 ## 🔧 Persyaratan
 
-- Python 3.8 atau lebih baru
+- Python 3.9 atau lebih baru (batas minimumnya mengikuti versi yt-dlp yang terpasang — cek dokumentasi yt-dlp terbaru kalau ragu)
+- Linux, macOS, atau Termux (Android). Windows: pakai WSL — modul `curses` tidak tersedia di Windows biasa
+- Paket Python `mutagen` (ikut terpasang lewat `requirements.txt`) — dipakai yt-dlp buat embed thumbnail ke file OPUS/FLAC
 - [ffmpeg](https://ffmpeg.org/) (untuk menggabungkan video+audio, convert format audio, embed thumbnail/metadata, dan verifikasi file hasil download via `ffprobe`)
 - (Opsional, Termux saja) `termux-api` untuk notifikasi Android & wake-lock, dan `termux-setup-storage` untuk fitur salin ke shared storage
 
@@ -88,7 +92,6 @@ project/
    ```bash
    python3 -m venv venv
    source venv/bin/activate    # Linux/Mac
-   venv\Scripts\activate       # Windows
    ```
 
 3. Install dependency Python:
@@ -102,7 +105,6 @@ project/
    |---|---|
    | Ubuntu/Debian | `sudo apt install ffmpeg` |
    | macOS (Homebrew) | `brew install ffmpeg` |
-   | Windows | Download dari [ffmpeg.org](https://ffmpeg.org/download.html) lalu tambahkan ke PATH |
    | Termux (Android) | `pkg install ffmpeg` |
 
 5. Verifikasi ffmpeg & ffprobe terinstall:
@@ -124,7 +126,7 @@ project/
 
 ## 🚀 Cara Menjalankan
 
-Jalankan dari folder **root** proyek (bukan dari dalam folder `src`), karena `main.py` mengimpor modul dengan `from src.xxx import ...`:
+Bisa dijalankan dari folder mana pun (mis. `python3 ~/download_video_cli/main.py`, termasuk dari cron) — `config.json`, `download/`, riwayat, lock, dan log selalu dibaca/ditulis di folder proyek, bukan di folder tempat kamu berada. Jangan menjalankan file yang ada di dalam `src/` secara langsung:
 
 ```bash
 python3 main.py
@@ -190,7 +192,7 @@ Semua pengaturan disimpan di `config.json` dan langsung dipakai di download beri
 Menampilkan versi aplikasi, versi yt-dlp & ffmpeg yang terpasang (atau "tidak terdeteksi/tidak ditemukan" kalau belum ada), dan versi Python yang lagi dipakai — berguna buat troubleshooting.
 
 ### 0. Keluar
-Menutup program (lock otomatis dilepas). Ctrl+C di titik mana pun juga keluar dengan rapi (bukan traceback error, lock tetap dilepas).
+Menutup program (lock otomatis dilepas). Ctrl+C di menu juga keluar dengan rapi (bukan traceback error). Ctrl+C atau error pas proses download berlangsung cuma membatalkan download itu dan kembali ke menu.
 
 ## 📂 Folder Penyimpanan Hasil Download
 
@@ -198,7 +200,7 @@ Secara default, semua hasil download (video/audio) masuk ke folder `download/` d
 
 - **Kosongkan** pengaturan ini kapan saja buat balik ke folder default.
 - Kalau path yang diisi ternyata **gagal dibuat/ditulisi** (typo, storage belum ke-mount, izin ditolak, dll), aplikasi otomatis **fallback ke folder default** + menampilkan peringatan yang menyebutkan alasannya — download tetap lanjut, nggak dibatalkan gara-gara satu pengaturan yang keliru.
-- Path relatif dihitung dari folder tempat `main.py` dijalankan; path dengan `~` (mis. `~/storage/downloads/YouTube`) otomatis di-expand ke home directory.
+- Path relatif dihitung dari folder proyek (tempat `main.py`), bukan dari folder tempat program dijalankan; path dengan `~` (mis. `~/storage/downloads/YouTube`) otomatis di-expand ke home directory.
 - File internal app (`download.json`, `app.log`, `.lock`) **tidak ikut pindah** — selalu tetap di `download/` supaya riwayat & lock konsisten terlepas dari ke mana file hasil download diarahkan.
 - Independen dari opsi "Salin ke storage Termux" (Pengaturan > 12) — keduanya bisa dipakai bareng kalau mau file ada di dua tempat sekaligus.
 
@@ -230,9 +232,24 @@ python3 main.py --url "URL" --cookies cookies.txt --rate-limit 2M
 
 # Simpan ke folder kustom, bukan folder default download/
 python3 main.py --url "URL" --output-dir ~/storage/downloads/YouTube
+
+# Video yang nyempil di playlist: cuma videonya, bukan seluruh playlist
+python3 main.py --url "https://www.youtube.com/watch?v=xxxxxxx&list=PLxxxx" --no-playlist
 ```
 
-Semua flag opsional selain `--url`/`--url-file`; kalau tidak diisi, nilai dari `config.json` (menu Pengaturan) yang dipakai sebagai default. Mode CLI tidak menawarkan potong durasi atau import subfolder interaktif — untuk itu pakai mode menu.
+Semua flag opsional selain `--url`/`--url-file`; kalau tidak diisi, nilai dari `config.json` (menu Pengaturan) yang dipakai sebagai default. Tanpa `--res`, resolusi default dari Pengaturan yang dipakai (kalau kosong: kualitas terbaik). Mode CLI tidak menawarkan potong durasi atau import subfolder interaktif — untuk itu pakai mode menu.
+
+**Kode keluar** (buat script/cron):
+
+| Kode | Arti |
+|---|---|
+| `0` | Semua beres (yang dilewati karena duplikat dianggap beres) |
+| `1` | Ada unduhan/URL yang gagal, atau tidak ada URL yang bisa diproses |
+| `2` | Argumen salah (mis. `--quality 999`, `--rate-limit cepat`, `--parallel 0`) |
+| `3` | Ada proses download_video_cli lain yang sedang jalan |
+| `130` | Dibatalkan (Ctrl+C) |
+
+Satu URL yang bermasalah tidak menggagalkan URL lain — sisanya tetap diproses, dan kode keluar tetap `1`.
 
 ## 📄 Format `download.json`
 
@@ -264,7 +281,7 @@ Semua flag opsional selain `--url`/`--url-file`; kalau tidak diisi, nilai dari `
 - `id` adalah ID video dari platform asal (dipakai buat deteksi duplikat yang lebih akurat daripada judul saja). Entri lama tetap kompatibel (field `id`-nya `null`, fallback ke pencocokan judul).
 - `resolution` untuk audio berisi `"{format}-{kualitas}kbps"` (mis. `"mp3-192kbps"`) untuk format lossy, atau cuma nama formatnya (mis. `"flac"`) untuk format lossless — supaya kualitas/format berbeda nggak dianggap duplikat.
 - Kalau hasilnya dipotong durasinya, rentang waktu (mis. `[01:30-02:45]`) ikut ditambahkan ke `resolution` dan ke `filename` — supaya video/audio penuh dan potongannya (atau potongan dengan rentang beda) tetap dianggap item yang berbeda, bukan duplikat.
-- `filename` mengikuti folder penyimpanan yang aktif saat itu diunduh (`download/` kalau default, atau path kustom kalau diatur lewat Pengaturan > 10 / `--output-dir`).
+- `filename` mengikuti folder penyimpanan yang aktif saat itu diunduh (`download/` kalau default, atau path kustom kalau diatur lewat Pengaturan > 10 / `--output-dir`). Unduhan baru dicatat dengan path lengkap; entri versi lama yang relatif (`download/...`) tetap terbaca dan dihitung dari folder proyek.
 - Cuma file yang **lolos verifikasi** (bukan 0 byte / rusak) yang dicatat di sini.
 
 ## 📱 Fitur Khusus Termux
@@ -278,18 +295,22 @@ Kedua fitur ini opsional dan otomatis di-skip diam-diam kalau perintah/izinnya b
 
 ## 📝 Log
 
-Aktivitas (mulai/selesai unduhan, retry, verifikasi gagal, error) dicatat ke `download/app.log` dengan timestamp. File ini murni buat keperluan lacak/debug (terutama kalau dijalanin unattended lewat cron) — tidak pernah ditampilkan ke layar. Hapus manual kalau sudah kebesaran, tidak ada rotasi otomatis.
+Aktivitas (mulai/selesai unduhan, retry, verifikasi gagal, error) dicatat ke `download/app.log` dengan timestamp. File ini murni buat keperluan lacak/debug (terutama kalau dijalanin unattended lewat cron) — tidak pernah ditampilkan ke layar. Diputar otomatis: maksimal ~1 MB per file, dengan 3 file cadangan (`app.log.1` dst).
 
 ## 🔒 Lock File
 
-Sebelum jalan, aplikasi membuat `download/.lock` berisi PID proses yang sedang aktif, dan menghapusnya otomatis saat keluar (termasuk saat Ctrl+C atau error). Kalau dijalankan lagi selagi ada proses lain yang masih aktif, aplikasi langsung keluar dengan pesan peringatan — mencegah dua proses rebutan baca-tulis `download.json` (misal nggak sengaja jalanin mode menu selagi cron mode CLI lagi jalan). Kalau proses sebelumnya crash dan lock-nya "nyangkut" (PID di dalamnya sudah nggak jalan), lock otomatis dianggap basi dan diambil alih di run berikutnya — nggak perlu dihapus manual, tapi bisa kalau mau: `rm download/.lock`.
+Sebelum jalan, aplikasi mengunci file `download/.lock` lewat sistem operasi (`flock`), dan kunci itu otomatis lepas saat aplikasi keluar — termasuk kalau prosesnya crash, di-kill, atau HP restart. Jadi tidak ada lock yang "nyangkut", dan tidak perlu menghapus apa pun secara manual. Kalau dijalankan lagi selagi ada proses lain yang masih aktif, aplikasi langsung keluar dengan pesan peringatan (kode keluar `3` di mode CLI) — mencegah dua proses rebutan baca-tulis `download.json` (misal nggak sengaja jalanin mode menu selagi cron mode CLI lagi jalan). File `.lock` sendiri tetap ada di disk (isinya PID terakhir, cuma informasi) — itu normal.
+
+Di sistem tanpa `flock`, aplikasi memakai cara cadangan: file `.lock` dibuat eksklusif berisi PID, dan dianggap basi (diambil alih otomatis) kalau PID-nya sudah tidak jalan.
 
 ## ⚠️ Catatan & Batasan
 
 - Video dari X/Twitter (dan platform lain) harus berasal dari post **publik**, kecuali sudah pakai file cookies buat akun yang login.
 - Deteksi duplikat memakai **ID video** kalau tersedia, fallback ke judul (case-insensitive) kalau tidak.
 - Ketersediaan resolusi/subtitle/format tergantung pada apa yang disediakan platform untuk video tersebut.
-- Embed thumbnail tidak berlaku untuk format WAV (keterbatasan format, bukan bug).
+- Embed thumbnail tidak berlaku untuk format WAV (keterbatasan format, bukan bug). Untuk OPUS/FLAC butuh paket `mutagen`; kalau belum terpasang, thumbnail dilewati (audionya tetap diunduh).
+- Dua video berjudul sama tidak saling menimpa: video berikutnya diberi ` [ID video]` di nama file. Nama file juga dipangkas maksimal 120 karakter (di luar ekstensi) supaya tidak kena "File name too long".
+- File yang gagal verifikasi otomatis disingkirkan (0 byte dihapus, yang rusak diganti nama `.corrupt`) supaya unduh ulang tidak dilewati yt-dlp sebagai "sudah ada".
 - Mode paralel mengunduh beberapa video sekaligus — pertimbangkan kecepatan koneksi, jangan set terlalu tinggi di jaringan yang lambat/terbatas (misal seluler). Progress bar realtime otomatis nonaktif di mode ini (diganti log ringkas per video) biar output beberapa thread nggak tumpang tindih.
 - Potong durasi & pemilihan subfolder interaktif cuma tersedia buat download 1 item (bukan mode banyak/playlist/CLI).
 - Verifikasi file pakai `ffprobe` kalau tersedia; kalau tidak, cuma dicek ukurannya (bukan 0 byte) — jadi validasinya nggak sedalam kalau `ffprobe` ada.
@@ -310,7 +331,8 @@ Sebelum jalan, aplikasi membuat `download/.lock` berisi PID proses yang sedang a
 | File tidak muncul di `~/storage/downloads` | Jalankan `termux-setup-storage` dulu, izinkan akses storage, baru aktifkan opsi di Pengaturan > 12 |
 | Progress bar berantakan di mode paralel | Ini normal — mode paralel sengaja memakai log ringkas per video, bukan progress bar realtime, biar output beberapa thread tidak tumpang tindih |
 | `pip install --upgrade yt-dlp` gagal dari menu Pengaturan | Beberapa sistem butuh izin tambahan — coba manual: `pip install -U yt-dlp --break-system-packages` (Termux/Debian modern) |
-| "Ada proses lain yang masih jalan" padahal nggak ada | Proses sebelumnya kemungkinan crash tanpa sempat lepas lock. Hapus manual: `rm download/.lock`, lalu jalankan lagi |
+| "Ada proses lain yang masih jalan" padahal nggak ada | Cek dulu `pgrep -f main.py` — mungkin ada menu/cron yang benar-benar masih jalan. Lock lepas otomatis kalau prosesnya mati; kalau tetap yakin nggak ada, `rm download/.lock` lalu jalankan lagi |
+| Muncul pesan riwayat/pengaturan "rusak" | File lama diselamatkan otomatis sebagai `download.json.corrupt-<waktu>` / `config.json.corrupt-<waktu>` — bisa dibuka manual buat menyelamatkan isinya |
 | "gagal diverifikasi" terus padahal filenya kelihatan normal | Cek `ffprobe -version` — kalau error, reinstall/update ffmpeg. File yang gagal verifikasi nggak masuk riwayat, aman diunduh ulang |
 
 ## 📜 Lisensi
