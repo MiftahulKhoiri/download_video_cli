@@ -2,16 +2,22 @@ import os
 
 from src.manager import load_history, delete_entry, clear_history
 from src.loading import format_size
+from src.paths import resolve_path
 from src import tui
 
 _SORT_MODES = ["Urutan asli", "Terbaru dulu", "Terlama dulu",
                "Ukuran terbesar", "Ukuran terkecil", "Judul A-Z", "Judul Z-A"]
 
 
+def _item_path(item):
+    """Path file entri riwayat. Entri versi lama (relatif, mis. 'download/x.mp4') dihitung dari folder proyek."""
+    return resolve_path(item.get("filename"))
+
+
 def _total_size(history):
     total = 0
     for item in history:
-        fn = item.get("filename")
+        fn = _item_path(item)
         if fn and os.path.exists(fn):
             try:
                 total += os.path.getsize(fn)
@@ -21,7 +27,7 @@ def _total_size(history):
 
 
 def _file_mtime(item):
-    fn = item.get("filename")
+    fn = _item_path(item)
     try:
         return os.path.getmtime(fn) if fn and os.path.exists(fn) else 0
     except OSError:
@@ -29,7 +35,7 @@ def _file_mtime(item):
 
 
 def _file_size(item):
-    fn = item.get("filename")
+    fn = _item_path(item)
     try:
         return os.path.getsize(fn) if fn and os.path.exists(fn) else 0
     except OSError:
