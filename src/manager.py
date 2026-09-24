@@ -3,14 +3,21 @@ import json
 import tempfile
 import threading
 
-DOWNLOAD_DIR = "download"
-HISTORY_FILE = os.path.join(DOWNLOAD_DIR, "download.json")
+from src.logger import get_logger
+from src.paths import DOWNLOAD_DIR, HISTORY_FILE, resolve_path  # noqa: F401  (DOWNLOAD_DIR/HISTORY_FILE tetap bisa diimpor dari sini)
+from src.utils import backup_corrupt_file
+
+log = get_logger()
 
 # Melindungi urutan baca-ubah-tulis download.json dari race condition pas
 # mode download paralel (beberapa thread worker bisa manggil save_file_record
 # hampir bersamaan). Cuma efektif dalam SATU proses -- perlindungan lintas
 # proses (mode menu vs CLI/cron) sudah ditangani terpisah oleh AppLock (lock.py).
 _history_lock = threading.Lock()
+
+# Pasangan (judul, ekstensi) yang sudah "dipesan" download lain di sesi ini,
+# biar dua download paralel berjudul sama nggak saling menimpa file (lihat claim_title).
+_reserved_names = set()
 
 
 def _atomic_write_json(path, data):
@@ -39,8 +46,7 @@ def _atomic_write_json(path, data):
 
 def ensure_download_folder():
     """Buat folder download (folder INTERNAL app: tempat download.json/.lock/app.log) jika belum ada."""
-    if not os.path.exists(DOWNLOAD_DIR):
-        os.makedirs(DOWNLOAD_DIR)
+    os.makedirs(DOWNLOAD_DIR, exist_ok=True)
     return DOWNLOAD_DIR
 
 
@@ -53,15 +59,16 @@ def ensure_output_folder(custom_path=None, printer=print):
     dikustomisasi lewat pengaturan "Folder Penyimpanan".
 
     custom_path kosong/None -> pakai folder default yang sama kayak sebelumnya
-    (DOWNLOAD_DIR). Kalau folder custom gagal dibuat/ditulisi (path salah, SD
-    card belum ke-mount, izin ditolak, dll), otomatis fallback ke folder
+    (DOWNLOAD_DIR). Path relatif dihitung dari folder PROYEK (bukan dari folder
+    tempat program dijalankan). Kalau folder custom gagal dibuat/ditulisi (path
+    salah, SD card belum ke-mount, izin ditolak, dll), otomatis fallback ke folder
     default + kasih warning -- biar download nggak gagal total gara-gara satu
     pengaturan yang keliru.
     """
     if not custom_path:
         return ensure_download_folder()
 
-    folder = os.path.expanduser(str(custom_path))
+    folder = resolve_path(custom_path)
     try:
         os.makedirs(folder, exist_ok=True)
         fd, probe_path = tempfile.mkstemp(prefix=".write_test-", dir=folder)
@@ -69,7 +76,7 @@ def ensure_output_folder(custom_path=None, printer=print):
         os.remove(probe_path)
         return folder
     except OSError as e:
-        printer(f"⚠️  Folder penyimpanan '{folder}' nggak bisa dipakai ({e}). Pakai folder default '{DOWNLOAD_DIR}/' dulu.")
+        printer(f"⚠️  Folder penyimpanan '{folder}' nggak bisa dipakai ({e}). Pakai folder default 'download/' dulu.")
         return ensure_download_folder()
 
 
@@ -79,9 +86,21 @@ def load_history():
         return []
     try:
         with open(HISTORY_FILE, "r", encoding="utf-8") as f:
-            return json.load(f)
-    except (json.JSONDecodeError, OSError) as e:
+            data = json.load(f)
+        if not isinstance(data, list):
+            raise ValueError("isinya bukan daftar (list)")
+        return [item for item in data if isinstance(item, dict)]
+    except OSError as e:
+        # Gagal BACA (izin/IO), bukan isinya yang rusak -- jangan diapa-apain filenya.
         print(f"⚠️  Gagal membaca riwayat download ({HISTORY_FILE}): {e}. Menggunakan riwayat kosong.")
+        return []
+    except ValueError as e:
+        # Isinya rusak. Selamatkan dulu ke file backup, kalau nggak riwayat lama bakal
+        # ketimpa begitu ada download berikutnya yang menyimpan riwayat baru.
+        backup = backup_corrupt_file(HISTORY_FILE)
+        note = f" File lama diselamatkan ke '{os.path.basename(backup)}'." if backup else ""
+        print(f"⚠️  Riwayat download ({HISTORY_FILE}) rusak: {e}.{note} Memulai riwayat kosong.")
+        log.error(f"Riwayat rusak ({e}); backup: {backup}")
         return []
 
 
@@ -108,19 +127,19 @@ def _find_existing(history, title, resolution=None, video_id=None):
 
     resolution=None -> cocokkan judul/id saja, abaikan resolusi.
     """
-    title_norm = title.strip().lower()
+    title_norm = (title or "").strip().lower()
     for item in history:
         item_id = item.get("id")
         if video_id and item_id:
             if item_id != video_id:
                 continue
         else:
-            if item.get("title", "").strip().lower() != title_norm:
+            if (item.get("title") or "").strip().lower() != title_norm:
                 continue
 
         if resolution is None:
             return item
-        if item.get("resolution", "").strip().lower() == resolution.strip().lower():
+        if (item.get("resolution") or "").strip().lower() == resolution.strip().lower():
             return item
     return None
 
@@ -130,6 +149,31 @@ def is_already_downloaded(title, resolution=None, video_id=None):
     history = load_history()
     item = _find_existing(history, title, resolution=resolution, video_id=video_id)
     return (item is not None), item
+
+
+def claim_title(title, ext):
+    """
+    Cek apakah nama file 'judul.ext' berisiko bentrok sama file lain: sudah ada di riwayat,
+    ATAU lagi dipakai download paralel lain di sesi ini. Return True kalau bentrok (pemanggil
+    sebaiknya nambahin ID video ke nama file); sekaligus 'memesan' judul ini buat pemanggil
+    berikutnya. Dipanggil SETELAH cek duplikat, jadi entri berjudul sama di riwayat itu
+    pasti video/format lain -- bukan video yang sama.
+    """
+    title_norm = (title or "").strip().lower()
+    ext_norm = (ext or "").lower().lstrip(".")
+    key = (title_norm, ext_norm)
+    with _history_lock:
+        in_use = key in _reserved_names
+        if not in_use:
+            for item in load_history():
+                if (item.get("title") or "").strip().lower() != title_norm:
+                    continue
+                item_ext = os.path.splitext(item.get("filename") or "")[1].lower().lstrip(".")
+                if item_ext == ext_norm:
+                    in_use = True
+                    break
+        _reserved_names.add(key)
+        return in_use
 
 
 def save_file_record(title, filename, url, resolution, video_id=None):
@@ -167,7 +211,7 @@ def delete_entry(index, remove_file=False):
         item = history.pop(index - 1)
 
         if remove_file:
-            filename = item.get("filename")
+            filename = resolve_path(item.get("filename"))
             if filename and os.path.exists(filename):
                 try:
                     os.remove(filename)
@@ -189,7 +233,7 @@ def clear_history(remove_files=False):
 
         if remove_files:
             for item in history:
-                filename = item.get("filename")
+                filename = resolve_path(item.get("filename"))
                 if filename and os.path.exists(filename):
                     try:
                         os.remove(filename)
