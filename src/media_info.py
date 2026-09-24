@@ -1,11 +1,25 @@
 # src/media_info.py
 """Lapisan info: semua fungsi yang cuma NANYA ke yt-dlp, nggak download beneran."""
+import contextlib
 import shutil
 import subprocess
 
 import yt_dlp
 
-from src.loading import Spinner
+from src.loading import Spinner, safe_print
+from src.utils import strip_ansi
+
+
+def base_ydl_opts():
+    """
+    Opsi dasar yang sama buat SEMUA panggilan yt-dlp di app ini: senyap, dan tanpa
+    kode warna ANSI (kode warna di pesan error bikin kotak curses & app.log berantakan).
+    """
+    return {
+        "quiet": True,
+        "no_warnings": True,
+        "color": {"stdout": "never", "stderr": "never"},
+    }
 
 
 def is_ffmpeg_available():
@@ -26,7 +40,7 @@ def get_ffmpeg_version():
         return None
 
 
-def _fetch_info_with_retry(ydl_opts, url, spinner_message, retries=1):
+def _fetch_info_with_retry(ydl_opts, url, spinner_message, retries=1, quiet=False):
     """
     Jalankan extract_info(download=False) dengan retry otomatis kalau gagal
     (mis. koneksi putus sesaat pas baru mau ambil info/metadata) -- semangatnya
@@ -36,12 +50,15 @@ def _fetch_info_with_retry(ydl_opts, url, spinner_message, retries=1):
     Tiap percobaan dapat Spinner-nya sendiri yang dibuka-tutup bersih, dan pesan
     retry dicetak SETELAH spinner ditutup (bukan pas animasinya lagi jalan) biar
     nggak tabrakan/nge-garbled tampilannya di terminal.
+
+    quiet=True (dipakai thread worker pas mode paralel): tanpa Spinner, karena
+    beberapa spinner dari thread berbeda bakal saling menimpa satu baris terminal.
     """
     retries = max(1, int(retries or 1))
     last_exc = None
     for attempt in range(1, retries + 1):
         try:
-            with Spinner(spinner_message):
+            with (contextlib.nullcontext() if quiet else Spinner(spinner_message)):
                 with yt_dlp.YoutubeDL(ydl_opts) as ydl:
                     return ydl.extract_info(url, download=False)
         except KeyboardInterrupt:
@@ -49,15 +66,16 @@ def _fetch_info_with_retry(ydl_opts, url, spinner_message, retries=1):
         except Exception as e:
             last_exc = e
             if attempt < retries:
-                print(f"⚠️  Percobaan {attempt}/{retries} gagal ambil info ({e}). Mencoba lagi...")
+                safe_print(f"⚠️  Percobaan {attempt}/{retries} gagal ambil info ({strip_ansi(e)}). Mencoba lagi...")
     raise last_exc
 
 
-def get_video_info(url, cookies_file=None, retries=1):
-    ydl_opts = {"quiet": True, "no_warnings": True}
+def get_video_info(url, cookies_file=None, retries=1, quiet=False):
+    # noplaylist: URL video yang nyempil di playlist (watch?v=..&list=..) cuma diambil videonya.
+    ydl_opts = {**base_ydl_opts(), "noplaylist": True}
     if cookies_file:
         ydl_opts["cookiefile"] = cookies_file
-    return _fetch_info_with_retry(ydl_opts, url, "🔍 Mengambil info video...", retries=retries)
+    return _fetch_info_with_retry(ydl_opts, url, "🔍 Mengambil info video...", retries=retries, quiet=quiet)
 
 
 def _video_needs_merge(info):
@@ -73,13 +91,18 @@ def _video_needs_merge(info):
     )
 
 
-def expand_playlist(url, cookies_file=None, retries=1):
+def expand_playlist(url, cookies_file=None, retries=1, no_playlist=False):
     """
     Kalau url adalah playlist, kembalikan list URL video di dalamnya
     (pakai extract_flat biar cepat, nggak fetch semua format tiap video).
     Kalau url video tunggal, kembalikan [url] apa adanya.
+
+    no_playlist=True: URL video yang nyempil di playlist (watch?v=..&list=..) dianggap
+    video tunggal, bukan playlist. URL playlist murni (/playlist?list=..) tetap di-expand.
     """
-    ydl_opts = {"quiet": True, "no_warnings": True, "extract_flat": "in_playlist"}
+    ydl_opts = {**base_ydl_opts(), "extract_flat": "in_playlist"}
+    if no_playlist:
+        ydl_opts["noplaylist"] = True
     if cookies_file:
         ydl_opts["cookiefile"] = cookies_file
     info = _fetch_info_with_retry(ydl_opts, url, "🔍 Memeriksa URL / playlist...", retries=retries)
