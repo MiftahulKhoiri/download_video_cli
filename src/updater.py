@@ -1,7 +1,31 @@
 import json
+import os
 import subprocess
 import sys
+import time
 import urllib.request
+
+from src.paths import UPDATE_CACHE_FILE
+
+CACHE_TTL_SECONDS = 24 * 3600  # jangan cek PyPI tiap kali start -- cukup sekali per 24 jam
+
+
+def _load_update_cache():
+    try:
+        with open(UPDATE_CACHE_FILE, "r", encoding="utf-8") as f:
+            data = json.load(f)
+        return data if isinstance(data, dict) else {}
+    except (OSError, json.JSONDecodeError):
+        return {}
+
+
+def _save_update_cache(data):
+    try:
+        os.makedirs(os.path.dirname(UPDATE_CACHE_FILE), exist_ok=True)
+        with open(UPDATE_CACHE_FILE, "w", encoding="utf-8") as f:
+            json.dump(data, f)
+    except OSError:
+        pass  # cache cuma optimisasi -- gagal nulis nggak boleh bikin cek update gagal
 
 
 def get_installed_version():
@@ -26,15 +50,32 @@ def get_latest_version(timeout=3):
         return None
 
 
-def check_for_update(timeout=3):
+def check_for_update(timeout=3, use_cache=True):
     """
     Return (installed, latest, is_outdated).
     Kalau nggak bisa cek versi terbaru (offline dll), latest=None dan is_outdated=False.
+
+    use_cache=True (dipakai startup_check_and_notify): kalau versi yt-dlp yang terpasang
+    SAMA kayak terakhir kali dicek DAN itu kurang dari 24 jam lalu, pakai hasil cache --
+    nggak nge-hit PyPI tiap kali aplikasi start. Cache otomatis basi begitu yt-dlp
+    diupdate (versi terpasang berubah). use_cache=False (dipakai menu "Cek & update yt-dlp"
+    manual) selalu cek langsung ke PyPI, karena user memang lagi nunggu hasil terbaru.
     """
     installed = get_installed_version()
+
+    if use_cache and installed:
+        cache = _load_update_cache()
+        checked_at = cache.get("checked_at")
+        if (cache.get("installed") == installed and "latest" in cache
+                and isinstance(checked_at, (int, float))
+                and 0 <= time.time() - checked_at < CACHE_TTL_SECONDS):
+            latest = cache.get("latest")
+            return installed, latest, bool(latest and installed != latest)
+
     latest = get_latest_version(timeout=timeout)
-    is_outdated = bool(installed and latest and installed != latest)
-    return installed, latest, is_outdated
+    if installed and latest is not None:
+        _save_update_cache({"installed": installed, "latest": latest, "checked_at": time.time()})
+    return installed, latest, bool(installed and latest and installed != latest)
 
 
 def update_yt_dlp():
