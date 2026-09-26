@@ -8,7 +8,7 @@ from src.media_info import expand_playlist
 from src.download_core import download_many, download_audio_many
 from src.loading import clear_screen
 from src.logo import show_logo, show_intro
-from src.config import load_config, _settings_loop, check_config_integrity
+from src.config import load_config, _settings_loop, check_config_integrity, MAX_PARALLEL_WORKERS, MAX_RETRY_COUNT
 from src.lock import AppLock
 from src.updater import startup_check_and_notify
 from src.utils import parse_rate_limit, strip_ansi
@@ -33,6 +33,15 @@ def _positive_int(value):
     return n
 
 
+def _bounded_int(lo, hi):
+    def _conv(value):
+        n = _positive_int(value)
+        if not (lo <= n <= hi):
+            raise argparse.ArgumentTypeError(f"harus angka antara {lo}-{hi}")
+        return n
+    return _conv
+
+
 def build_arg_parser():
     parser = argparse.ArgumentParser(
         description="YouTube/X Video & Audio Downloader — mode non-interaktif (CLI)."
@@ -48,16 +57,19 @@ def build_arg_parser():
     parser.add_argument("--no-playlist", action="store_true", dest="no_playlist",
                          help="URL video yang nyempil di playlist (watch?v=..&list=..) cuma diunduh videonya, "
                               "bukan seluruh playlist.")
+    parser.add_argument("--no-intro", action="store_true", dest="no_intro",
+                         help="Lewati animasi splash screen pas start (mode menu). Nggak berlaku kalau sudah "
+                              "dimatikan permanen lewat Pengaturan.")
     parser.add_argument("--audio", action="store_true",
                          help="Unduh sebagai audio, bukan video.")
     parser.add_argument("--audio-format", default=None, choices=["mp3", "m4a", "opus", "flac", "wav"],
                          help="Format audio, cuma berlaku dengan --audio.")
     parser.add_argument("--quality", default=None, choices=["128", "192", "256", "320"],
                          help="Kualitas audio dalam kbps (128/192/256/320), cuma berlaku format lossy.")
-    parser.add_argument("--parallel", type=_positive_int, default=None,
-                         help="Jumlah download paralel (override pengaturan tersimpan).")
-    parser.add_argument("--retry", type=_positive_int, default=None,
-                         help="Jumlah percobaan ulang kalau gagal (override pengaturan tersimpan).")
+    parser.add_argument("--parallel", type=_bounded_int(1, MAX_PARALLEL_WORKERS), default=None,
+                         help=f"Jumlah download paralel, 1-{MAX_PARALLEL_WORKERS} (override pengaturan tersimpan).")
+    parser.add_argument("--retry", type=_bounded_int(1, MAX_RETRY_COUNT), default=None,
+                         help=f"Jumlah percobaan ulang kalau gagal, 1-{MAX_RETRY_COUNT} (override pengaturan tersimpan).")
     parser.add_argument("--sub", default=None, metavar="LANG1,LANG2",
                          help="Kode bahasa subtitle yang mau diunduh, pisah koma (misal id,en).")
     parser.add_argument("--cookies", default=None, metavar="FILE",
@@ -191,10 +203,12 @@ def main():
                 return EXIT_INTERRUPTED
 
         try:
-            show_intro()
+            check_config_integrity()
+            config = load_config()
+            if config.get("show_intro", True) and not args.no_intro:
+                show_intro()
             clear_screen()
             show_logo()
-            check_config_integrity()
             startup_check_and_notify()
             input("Tekan Enter untuk masuk ke menu...")
             curses.wrapper(_interactive_app)
