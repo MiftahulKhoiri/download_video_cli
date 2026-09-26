@@ -15,6 +15,7 @@ Script Python3 untuk mengunduh video dan audio dari **YouTube** dan **X (Twitter
 - **Subtitle/caption** opsional (manual + auto-generated), bisa multi-bahasa
 - **Embed thumbnail + metadata** (judul dll) otomatis ke file audio
 - Batas kecepatan download (rate limit) opsional (contoh `2M`, `500K`, `2MB/s`) — di mode paralel, batasnya dibagi rata ke tiap download, jadi totalnya tetap sesuai pengaturan
+- Format video diprioritaskan **h264 (video) + m4a (audio)** kalau beberapa format setara kualitasnya tersedia — galeri/pemutar video Android sering nggak bisa memutar VP9/AV1/Opus. Cuma preferensi, bukan paksaan: kalau situsnya cuma punya VP9/AV1, itu yang tetap dipakai
 
 **Keandalan**
 - **Verifikasi file hasil download** — deteksi file 0 byte / rusak (pakai `ffprobe` kalau tersedia) sebelum disimpan ke riwayat, jadi file yang gagal nggak dianggap sukses
@@ -23,6 +24,7 @@ Script Python3 untuk mengunduh video dan audio dari **YouTube** dan **X (Twitter
 - **Lock file** — cegah dua proses (mode menu & mode CLI, atau dua CLI/cron sekaligus) jalan bersamaan dan rebutan tulis `download.json`. Dikunci lewat sistem operasi (`flock`), jadi otomatis lepas walau proses crash/di-kill — nggak ada lock "nyangkut"
 - **Wake-lock Termux yang akurat di mode paralel** — HP nggak bakal ketiduran duluan di tengah proses walau ada beberapa download paralel yang selesai di waktu berbeda-beda (lock baru dilepas setelah SEMUA proses dalam batch selesai)
 - Ctrl+C ditangani rapi — file `.part`/`.ytdl` sisa milik download yang dibatalkan otomatis dibersihkan (file lain di folder tujuan nggak disentuh). Di mode paralel, antrean langsung dihentikan dan download yang lagi jalan ikut berhenti. Di mode menu, Ctrl+C/error pas download cuma membatalkan download itu dan kembali ke menu
+- **Deteksi duplikat sadar file hilang** — kalau file hasil download sebelumnya dihapus manual/dipindah, entrinya nggak dianggap "sudah ada" lagi, jadi boleh diunduh ulang (entri riwayat lama otomatis diperbarui di tempat, bukan nambah duplikat baru)
 
 **Organisasi & riwayat**
 - **Folder penyimpanan hasil download bisa dikustomisasi** — atur lewat menu Pengaturan atau flag `--output-dir`, kosongkan buat pakai folder default `download/`. Kalau folder yang diisi ternyata bermasalah (path salah, storage belum ke-mount, izin ditolak), otomatis fallback ke folder default + kasih peringatan, jadi download nggak gagal total gara-gara satu pengaturan yang keliru
@@ -32,8 +34,15 @@ Script Python3 untuk mengunduh video dan audio dari **YouTube** dan **X (Twitter
 - Log aktivitas & error otomatis ke `download/app.log` — berguna kalau dijalanin unattended/cron
 - Menu **Tentang** — lihat versi aplikasi, yt-dlp, ffmpeg, dan Python yang lagi kepakai
 
+**Tampilan (TUI)**
+- Tahan **resize terminal** di tengah jalan (mis. keyboard Termux muncul/hilang, nyusutin tinggi layar) — layout dihitung ulang tiap frame, nggak nyangkut pakai ukuran lama yang udah nggak muat
+- Perataan & pemotongan teks di menu **sadar lebar tampilan** — judul video berisi emoji atau karakter CJK (Cina/Jepang/Korea) nggak bikin kolom menu geser/berantakan
+- Judul panjang dipotong di **tengah** (bukan ujung kanan), jadi tag penting di akhir teks (mis. `[720p]`) tetap kelihatan, bukan ikut kepotong
+- Kotak input teks menerima **karakter Unicode apa saja** (huruf beraksen, dll), bukan cuma huruf/angka ASCII
+
 **Kenyamanan & Termux**
-- **Cek & update yt-dlp** — notice otomatis pas start kalau ketinggalan versi + tombol update di menu Pengaturan (yt-dlp yang outdated adalah penyebab paling umum error 403)
+- **Splash screen pembuka bisa dimatikan** — lewat Pengaturan > 16 atau flag `--no-intro`, biar aplikasi start ~8 detik lebih cepat
+- **Cek & update yt-dlp** — notice otomatis pas start kalau ketinggalan versi + tombol update di menu Pengaturan (yt-dlp yang outdated adalah penyebab paling umum error 403). Hasil cek di-cache 24 jam (nggak nge-hit PyPI tiap kali start) — otomatis basi begitu yt-dlp diupdate; cek manual lewat menu selalu langsung ke PyPI
 - Notifikasi Android via Termux:API setelah download selesai
 - Opsi **salin otomatis ke `~/storage/downloads`** biar file muncul di Galeri/File Manager Android (independen dari folder penyimpanan kustom — bisa dipakai bareng)
 - Tema warna menu bisa disesuaikan (latar & tulisan, 8 pilihan warna terminal standar)
@@ -49,6 +58,8 @@ project/
 ├── requirements.txt
 ├── README.md
 ├── config.json                 # Dibuat otomatis saat pengaturan pertama kali diubah
+├── .gitignore                   # download/, config.json, cookies.txt, dll -- nggak ikut ke-commit
+├── tests/                       # Uji unit ringan (tanpa jaringan/yt-dlp beneran) -- lihat bagian Testing
 ├── src/
 │   ├── __init__.py
 │   ├── tui.py                # Widget menu/input ala raspi-config (curses), tema warna
@@ -70,6 +81,7 @@ project/
     ├── download.json            # Riwayat download
     ├── app.log                  # Log aktivitas & error
     ├── .lock                    # File lock (dikunci selagi aplikasi jalan)
+    ├── update_cache.json         # Cache hasil cek versi yt-dlp (24 jam)
     └── <hasil download>         # Video/audio hasil unduhan -- ADA DI SINI cuma kalau
                                   # "Folder Penyimpanan" di Pengaturan dikosongkan (default)
 ```
@@ -162,7 +174,7 @@ Menampilkan daftar semua video/audio yang pernah diunduh (judul, resolusi/format
 ```
 - Semua opsi otomatis mendukung playlist (URL playlist akan di-expand jadi daftar video/audio).
 - Opsi "audio" menawarkan pilihan format (MP3/M4A/OPUS/FLAC/WAV) dan kualitas (khusus format lossy).
-- Opsi "1 item" (video maupun audio) menawarkan pemotongan ke rentang waktu tertentu.
+- Opsi "1 item" (video maupun audio) menawarkan pemotongan ke rentang waktu tertentu (waktu selesai harus lebih besar dari waktu mulai, kalau salah otomatis diabaikan dan unduh sampai akhir).
 - Opsi "banyak" menawarkan sumber URL: ketik manual atau import dari file `.txt` (satu URL per baris, baris berawalan `#` diabaikan). Otomatis cek ruang disk kosong sebelum mulai.
 - Kalau punya resolusi/format/kualitas default di Pengaturan, akan dipakai otomatis (dengan opsi override manual kalau nggak tersedia untuk video tersebut).
 - Setiap file yang selesai diunduh diverifikasi dulu (bukan 0 byte / rusak) sebelum dicatat ke riwayat.
@@ -174,8 +186,8 @@ Menampilkan daftar semua video/audio yang pernah diunduh (judul, resolusi/format
  3. Kualitas audio default   (128/192/256/320 kbps, cuma berlaku format lossy)
  4. Embed thumbnail/metadata (aktif/nonaktif)
  5. Subtitle default         (kode bahasa, misal id,en — kosongkan = nonaktif)
- 6. Jumlah download paralel  (1 = berurutan/default, aman buat koneksi lambat)
- 7. Jumlah percobaan ulang   (retry otomatis, berlaku buat ambil info & proses download)
+ 6. Jumlah download paralel  (1 = berurutan/default, aman buat koneksi lambat; maks 8)
+ 7. Jumlah percobaan ulang   (retry otomatis, berlaku buat ambil info & proses download; maks 10)
  8. File cookies             (path ke cookies.txt, buat konten yang butuh login)
  9. Notifikasi Termux        (aktif/nonaktif)
 10. Folder penyimpanan hasil (path folder tujuan video/audio; kosongkan = folder default download/)
@@ -184,7 +196,8 @@ Menampilkan daftar semua video/audio yang pernah diunduh (judul, resolusi/format
 13. Batas kecepatan unduh    (misal 2M, 500K; kosongkan = tanpa batas)
 14. Warna latar belakang     (8 pilihan warna terminal standar)
 15. Warna tulisan            (8 pilihan warna terminal standar, nggak boleh sama dengan latar)
-16. Cek & update yt-dlp      (cek versi + update langsung dari menu)
+16. Animasi pembuka (splash) (aktif/nonaktif -- matikan biar start lebih cepat, sama seperti `--no-intro`)
+17. Cek & update yt-dlp      (cek versi + update langsung dari menu, selalu live ke PyPI)
 ```
 Semua pengaturan disimpan di `config.json` dan langsung dipakai di download berikutnya.
 
@@ -237,6 +250,12 @@ python3 main.py --url "URL" --output-dir ~/storage/downloads/YouTube
 python3 main.py --url "https://www.youtube.com/watch?v=xxxxxxx&list=PLxxxx" --no-playlist
 ```
 
+`--no-intro` cuma relevan buat mode menu (tanpa `--url`/`--url-file`) -- mode CLI di atas nggak pernah menampilkan splash screen sama sekali:
+
+```bash
+python3 main.py --no-intro
+```
+
 Semua flag opsional selain `--url`/`--url-file`; kalau tidak diisi, nilai dari `config.json` (menu Pengaturan) yang dipakai sebagai default. Tanpa `--res`, resolusi default dari Pengaturan yang dipakai (kalau kosong: kualitas terbaik). Mode CLI tidak menawarkan potong durasi atau import subfolder interaktif — untuk itu pakai mode menu.
 
 **Kode keluar** (buat script/cron):
@@ -245,7 +264,7 @@ Semua flag opsional selain `--url`/`--url-file`; kalau tidak diisi, nilai dari `
 |---|---|
 | `0` | Semua beres (yang dilewati karena duplikat dianggap beres) |
 | `1` | Ada unduhan/URL yang gagal, atau tidak ada URL yang bisa diproses |
-| `2` | Argumen salah (mis. `--quality 999`, `--rate-limit cepat`, `--parallel 0`) |
+| `2` | Argumen salah (mis. `--quality 999`, `--rate-limit cepat`, `--parallel 0` atau `--parallel 99`) |
 | `3` | Ada proses download_video_cli lain yang sedang jalan |
 | `130` | Dibatalkan (Ctrl+C) |
 
@@ -260,7 +279,8 @@ Satu URL yang bermasalah tidak menggagalkan URL lain — sisanya tetap diproses,
     "title": "Judul Video",
     "filename": "download/Judul Video.mp4",
     "url": "https://www.youtube.com/watch?v=xxxxxxx",
-    "resolution": "720p"
+    "resolution": "720p",
+    "downloaded_at": "2026-09-25T14:30:00+07:00"
   },
   {
     "id": "yyyyyyy",
@@ -283,6 +303,8 @@ Satu URL yang bermasalah tidak menggagalkan URL lain — sisanya tetap diproses,
 - Kalau hasilnya dipotong durasinya, rentang waktu (mis. `[01:30-02:45]`) ikut ditambahkan ke `resolution` dan ke `filename` — supaya video/audio penuh dan potongannya (atau potongan dengan rentang beda) tetap dianggap item yang berbeda, bukan duplikat.
 - `filename` mengikuti folder penyimpanan yang aktif saat itu diunduh (`download/` kalau default, atau path kustom kalau diatur lewat Pengaturan > 10 / `--output-dir`). Unduhan baru dicatat dengan path lengkap; entri versi lama yang relatif (`download/...`) tetap terbaca dan dihitung dari folder proyek.
 - Cuma file yang **lolos verifikasi** (bukan 0 byte / rusak) yang dicatat di sini.
+- `downloaded_at` mencatat waktu unduhan (dipakai juga sebagai cadangan pengurutan "Terbaru/Terlama dulu" di dashboard kalau filenya sudah nggak ada di disk). Entri lama sebelum field ini ada tetap kompatibel (dianggap kosong).
+- Kalau file hasil unduhan suatu entri **dihapus manual dari disk**, entri itu nggak lagi dianggap duplikat — mengunduh ulang video/resolusi yang sama akan memperbarui entri ini di tempat (bukan menambah baris baru), dan dashboard menandainya dengan ⚠️ sebelum diunduh ulang.
 
 ## 📱 Fitur Khusus Termux
 
@@ -311,12 +333,21 @@ Di sistem tanpa `flock`, aplikasi memakai cara cadangan: file `.lock` dibuat eks
 - Embed thumbnail tidak berlaku untuk format WAV (keterbatasan format, bukan bug). Untuk OPUS/FLAC butuh paket `mutagen`; kalau belum terpasang, thumbnail dilewati (audionya tetap diunduh).
 - Dua video berjudul sama tidak saling menimpa: video berikutnya diberi ` [ID video]` di nama file. Nama file juga dipangkas maksimal 120 karakter (di luar ekstensi) supaya tidak kena "File name too long".
 - File yang gagal verifikasi otomatis disingkirkan (0 byte dihapus, yang rusak diganti nama `.corrupt`) supaya unduh ulang tidak dilewati yt-dlp sebagai "sudah ada".
-- Mode paralel mengunduh beberapa video sekaligus — pertimbangkan kecepatan koneksi, jangan set terlalu tinggi di jaringan yang lambat/terbatas (misal seluler). Progress bar realtime otomatis nonaktif di mode ini (diganti log ringkas per video) biar output beberapa thread nggak tumpang tindih.
+- Mode paralel mengunduh beberapa video sekaligus — pertimbangkan kecepatan koneksi, jangan set terlalu tinggi di jaringan yang lambat/terbatas (misal seluler). Dibatasi maksimal 8 sekaligus (baik lewat Pengaturan maupun `--parallel`) buat jaga-jaga dari OOM/overheat di HP/Pi. Progress bar realtime otomatis nonaktif di mode ini (diganti log ringkas per video) biar output beberapa thread nggak tumpang tindih.
+- Preferensi h264/m4a cuma tie-breaker di antara format yang KUALITASNYA setara — bukan filter/paksaan, dan nggak menjamin hasil selalu bisa diputar di semua pemutar video.
 - Potong durasi & pemilihan subfolder interaktif cuma tersedia buat download 1 item (bukan mode banyak/playlist/CLI).
 - Verifikasi file pakai `ffprobe` kalau tersedia; kalau tidak, cuma dicek ukurannya (bukan 0 byte) — jadi validasinya nggak sedalam kalau `ffprobe` ada.
 - Cek ruang disk kosong nggak memprediksi ukuran unduhan; cuma warning/batal berdasarkan sisa ruang saat itu, bukan estimasi total kebutuhan.
 - Folder penyimpanan kustom yang gagal diakses otomatis fallback ke folder default (lihat bagian [Folder Penyimpanan Hasil Download](#-folder-penyimpanan-hasil-download)) — cek pesan peringatannya buat tahu alasannya.
 - Gunakan sesuai dengan [Ketentuan Layanan](https://www.youtube.com/t/terms) platform terkait dan hanya untuk konten yang Anda punya hak untuk mengunduhnya.
+
+## 🧪 Testing
+
+Uji unit ringan buat logika yang nggak butuh jaringan/yt-dlp beneran (parsing, path, riwayat/duplikat, validasi pengaturan, lebar tampilan TUI, dll). Bukan pengganti uji manual pakai yt-dlp asli (lihat Troubleshooting di bawah), tapi jaring pengaman cepat sebelum push perubahan:
+
+```bash
+python3 -m unittest discover -s tests -v
+```
 
 ## 🛠️ Troubleshooting
 
