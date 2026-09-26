@@ -23,12 +23,19 @@ DEFAULT_CONFIG = {
     "rate_limit": None,             # batas kecepatan, contoh "2M" / "500K"; None = tanpa batas
     "bg_color": "putih",            # warna latar tampilan menu (lihat tui.COLOR_NAMES)
     "text_color": "hitam",          # warna tulisan tampilan menu (lihat tui.COLOR_NAMES)
+    "show_intro": True,             # tampilkan animasi splash screen pas start (bisa dimatikan biar start lebih cepat)
 }
 
 _AUDIO_FORMATS = ["mp3", "m4a", "opus", "flac", "wav"]
 _QUALITIES = ["128", "192", "256", "320"]
 _ORGANIZE_OPTIONS = ["none", "channel", "date"]
 _TOGGLE_OPTIONS = ["Aktif", "Nonaktif"]
+
+# Batas atas -- bukan cuma validasi ngasal: kelewat banyak worker paralel di HP/Pi gampang
+# bikin OOM/thermal-throttle, dan retry kebanyakan bikin URL yang beneran gagal (dihapus,
+# private) nyangkut lama banget sebelum nyerah.
+MAX_PARALLEL_WORKERS = 8
+MAX_RETRY_COUNT = 10
 
 
 def _validate_config(config):
@@ -61,10 +68,10 @@ def _validate_config(config):
     _cek("subtitle_langs", isinstance(v, list) and all(isinstance(x, str) for x in v))
 
     v = config.get("parallel_workers")
-    _cek("parallel_workers", isinstance(v, int) and not isinstance(v, bool) and v >= 1)
+    _cek("parallel_workers", isinstance(v, int) and not isinstance(v, bool) and 1 <= v <= MAX_PARALLEL_WORKERS)
 
     v = config.get("retry_count")
-    _cek("retry_count", isinstance(v, int) and not isinstance(v, bool) and v >= 1)
+    _cek("retry_count", isinstance(v, int) and not isinstance(v, bool) and 1 <= v <= MAX_RETRY_COUNT)
 
     v = config.get("cookies_file")
     _cek("cookies_file", v is None or isinstance(v, str))
@@ -80,6 +87,8 @@ def _validate_config(config):
 
     v = config.get("rate_limit")
     _cek("rate_limit", v is None or (isinstance(v, str) and parse_rate_limit(v) is not None))
+
+    _cek("show_intro", isinstance(config.get("show_intro"), bool))
 
     _cek("bg_color", config.get("bg_color") in tui.COLOR_NAMES)
     _cek("text_color", config.get("text_color") in tui.COLOR_NAMES)
@@ -256,26 +265,27 @@ def _h_subtitle_langs(stdscr, config):
 
 def _h_parallel_workers(stdscr, config):
     current = config.get("parallel_workers", 1)
-    raw = tui.input_box(stdscr, "Jumlah Download Paralel", "Angka >= 1. 1 = berurutan (paling aman).",
+    raw = tui.input_box(stdscr, "Jumlah Download Paralel",
+                         f"Angka 1-{MAX_PARALLEL_WORKERS}. 1 = berurutan (paling aman).",
                          initial=str(current))
     if raw is None:
         return
     raw = raw.strip()
-    if not (raw.isdigit() and int(raw) >= 1):
-        tui.message_box(stdscr, "Nilai Tidak Valid", "Harus angka, minimal 1.")
+    if not (raw.isdigit() and 1 <= int(raw) <= MAX_PARALLEL_WORKERS):
+        tui.message_box(stdscr, "Nilai Tidak Valid", f"Harus angka antara 1-{MAX_PARALLEL_WORKERS}.")
         return
     set_value("parallel_workers", int(raw))
 
 
 def _h_retry_count(stdscr, config):
     current = config.get("retry_count", 1)
-    raw = tui.input_box(stdscr, "Jumlah Percobaan Ulang", "Angka >= 1. 1 = tanpa retry.",
+    raw = tui.input_box(stdscr, "Jumlah Percobaan Ulang", f"Angka 1-{MAX_RETRY_COUNT}. 1 = tanpa retry.",
                          initial=str(current))
     if raw is None:
         return
     raw = raw.strip()
-    if not (raw.isdigit() and int(raw) >= 1):
-        tui.message_box(stdscr, "Nilai Tidak Valid", "Harus angka, minimal 1.")
+    if not (raw.isdigit() and 1 <= int(raw) <= MAX_RETRY_COUNT):
+        tui.message_box(stdscr, "Nilai Tidak Valid", f"Harus angka antara 1-{MAX_RETRY_COUNT}.")
         return
     set_value("retry_count", int(raw))
 
@@ -379,11 +389,19 @@ def _h_text_color(stdscr, config):
     tui.apply_theme(stdscr, bg_now, chosen)
 
 
+def _h_show_intro(stdscr, config):
+    current = config.get("show_intro", True)
+    idx = tui.menu(stdscr, "Animasi Pembuka", _TOGGLE_OPTIONS, selected=0 if current else 1,
+                   message="Matikan biar aplikasi start lebih cepat (~8 detik lebih singkat).")
+    if idx is not None:
+        set_value("show_intro", idx == 0)
+
+
 def _h_update_ytdlp(stdscr, config):
     from src.updater import check_for_update, update_yt_dlp
 
     tui.loading_box(stdscr, "Cek Update", "🔍 Mengecek versi yt-dlp...")
-    installed, latest, is_outdated = check_for_update(timeout=5)
+    installed, latest, is_outdated = check_for_update(timeout=5, use_cache=False)  # cek manual: selalu langsung ke PyPI
 
     if installed is None:
         tui.message_box(stdscr, "Cek Update", "❌ Tidak bisa mendeteksi yt-dlp yang terpasang.")
@@ -417,7 +435,7 @@ _HANDLERS = [
     _h_default_resolution, _h_audio_format, _h_mp3_quality, _h_embed_metadata,
     _h_subtitle_langs, _h_parallel_workers, _h_retry_count, _h_cookies_file,
     _h_notify_termux, _h_download_folder, _h_organize_by, _h_termux_shared_storage, _h_rate_limit,
-    _h_bg_color, _h_text_color,
+    _h_bg_color, _h_text_color, _h_show_intro,
     _h_update_ytdlp,
 ]
 
@@ -439,6 +457,7 @@ def _build_items(config):
         f"Batas kecepatan unduh     : {config.get('rate_limit') or 'tanpa batas'}",
         f"Warna latar belakang      : {_label_color(config.get('bg_color', 'putih'))}",
         f"Warna tulisan             : {_label_color(config.get('text_color', 'hitam'))}",
+        f"Animasi pembuka (splash)  : {_label_bool(config.get('show_intro', True))}",
         "Cek & update yt-dlp",
     ]
 
