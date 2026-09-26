@@ -1,0 +1,31 @@
+# Folder internal app: riwayat, lock, log, cache update -- data personal/runtime, jangan ikut ke-commit
+download/
+
+# Hasil download kalau folder tujuan custom-nya ditaruh di dalam repo (jarang, tapi jaga-jaga)
+*.mp4
+*.mp3
+*.m4a
+*.opus
+*.flac
+*.wav
+*.webm
+*.mkv
+*.part
+*.ytdl
+
+# Pengaturan personal & rahasia
+config.json
+cookies.txt
+*.corrupt-*
+*.corrupt
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+venv/
+
+# Editor / OS
+.vscode/
+.idea/
+.DS_Store
