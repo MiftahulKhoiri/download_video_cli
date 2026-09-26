@@ -55,6 +55,15 @@ def _pilih_rentang_waktu_tui(stdscr):
             end_sec = _parse_time_to_seconds(selesai.strip())
         except ValueError:
             tui.message_box(stdscr, "Nilai Tidak Valid", "Format waktu selesai salah, diabaikan.")
+            end_sec = None
+        else:
+            if end_sec <= start_sec:
+                tui.message_box(
+                    stdscr, "Nilai Tidak Valid",
+                    f"Waktu selesai ({selesai.strip()}) harus lebih besar dari waktu mulai ({mulai.strip()}). "
+                    "Diabaikan, unduh sampai akhir.",
+                )
+                end_sec = None
     return (start_sec, end_sec)
 
 
