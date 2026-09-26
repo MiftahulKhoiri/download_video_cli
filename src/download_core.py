@@ -55,9 +55,18 @@ def _mutagen_available():
 
 
 def _build_format_string(target_height):
+    # '/best' penutup di akhir: jaga-jaga buat situs/video yang nggak punya info
+    # 'height' sama sekali di formatnya (bestvideo[height<=X] gagal cocok), biar
+    # tetap dapat sesuatu daripada gagal total.
     if target_height is None:
         return "bestvideo+bestaudio/best"
-    return f"bestvideo[height<={target_height}]+bestaudio/best[height<={target_height}]"
+    return f"bestvideo[height<={target_height}]+bestaudio/best[height<={target_height}]/best"
+
+
+# Diutamakan h264 (video) + m4a (audio) kalau ada beberapa format setara kualitasnya --
+# galeri/pemutar video Android sering nggak bisa mutar VP9/AV1/Opus di dalam kontainer MP4.
+# Cuma preferensi (tie-breaker), bukan paksaan: kalau cuma ada VP9/AV1, itu yang tetap dipakai.
+_FORMAT_SORT = ["vcodec:h264", "acodec:m4a"]
 
 
 def _build_outtmpl(base_folder, organize_by, filename_tag=""):
@@ -329,6 +338,8 @@ def download_single(url, target_height=None, resolution_label="terbaik", info=No
         printer(f"⚠️  '{title}' ({resolution_label}) sudah pernah diunduh sebelumnya (file: {existing.get('filename')}). Dilewati.")
         log.info(f"Duplikat dilewati: {title} ({resolution_label})")
         return STATUS_SKIP
+    if existing is not None:
+        printer(f"ℹ️  File lama '{existing.get('filename')}' sudah nggak ada di disk, mengunduh ulang '{title}'.")
 
     if _video_needs_merge(info) and not is_ffmpeg_available():
         printer(f"❌ '{title}' butuh ffmpeg buat menggabungkan video+audio, tapi ffmpeg belum terpasang. Dilewati.")
@@ -344,6 +355,7 @@ def download_single(url, target_height=None, resolution_label="terbaik", info=No
         **base_ydl_opts(),
         "noplaylist": True,   # URL yang sampai sini sudah video tunggal -- jangan sampai ke-expand jadi satu playlist utuh
         "format": _build_format_string(target_height),
+        "format_sort": _FORMAT_SORT,
         "outtmpl": _build_outtmpl(folder, organize_by, filename_tag=filename_tag),
         "trim_file_name": MAX_FILENAME_CHARS,
         "merge_output_format": "mp4",
@@ -525,6 +537,8 @@ def download_audio_single(url, info=None, audio_format=None, quality=None, confi
         printer(f"⚠️  '{title}' ({resolution_label}) sudah pernah diunduh sebelumnya (file: {existing.get('filename')}). Dilewati.")
         log.info(f"Duplikat dilewati: {title} ({resolution_label})")
         return STATUS_SKIP
+    if existing is not None:
+        printer(f"ℹ️  File lama '{existing.get('filename')}' sudah nggak ada di disk, mengunduh ulang '{title}'.")
 
     filename_tag += _collision_tag(title, audio_format, video_id, url)
 
