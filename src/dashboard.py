@@ -1,3 +1,4 @@
+import datetime
 import os
 
 from src.manager import load_history, delete_entry, clear_history
@@ -14,6 +15,24 @@ def _item_path(item):
     return resolve_path(item.get("filename"))
 
 
+def _item_missing(item):
+    """True kalau file hasil download entri ini udah nggak ada di disk (dihapus manual, dll)."""
+    fn = _item_path(item)
+    return not (fn and os.path.exists(fn))
+
+
+def _downloaded_at_ts(item):
+    """Waktu unduh (epoch float) dari field 'downloaded_at', atau 0 kalau nggak ada/nggak kebaca
+    (entri lama sebelum field ini ada)."""
+    raw = item.get("downloaded_at")
+    if not raw:
+        return 0
+    try:
+        return datetime.datetime.fromisoformat(raw).timestamp()
+    except ValueError:
+        return 0
+
+
 def _total_size(history):
     total = 0
     for item in history:
@@ -27,11 +46,18 @@ def _total_size(history):
 
 
 def _file_mtime(item):
+    """
+    Waktu file di disk buat pengurutan 'Terbaru/Terlama dulu'. Kalau filenya udah
+    nggak ada (dihapus manual), fallback ke timestamp 'downloaded_at' yang dicatat
+    pas awal diunduh -- daripada entri itu selalu nyangkut di paling bawah/atas.
+    """
     fn = _item_path(item)
     try:
-        return os.path.getmtime(fn) if fn and os.path.exists(fn) else 0
+        if fn and os.path.exists(fn):
+            return os.path.getmtime(fn)
     except OSError:
-        return 0
+        pass
+    return _downloaded_at_ts(item)
 
 
 def _file_size(item):
@@ -80,7 +106,10 @@ def _detail_entry(stdscr, real_index, item):
         f"Resolusi : {item.get('resolution')}",
         f"File     : {item.get('filename')}",
         f"URL      : {item.get('url')}",
+        f"Diunduh  : {item.get('downloaded_at') or '(tidak tercatat)'}",
     ]
+    if _item_missing(item):
+        detail.append("⚠️  File ini sudah nggak ada di disk (dihapus manual / dipindah).")
     pilih = tui.menu(stdscr, "Detail Entri", ["Hapus entri ini", "Kembali"], message=detail)
     if pilih == 0:
         _konfirmasi_hapus_satu(stdscr, real_index, item)
@@ -126,7 +155,10 @@ def run_dashboard_menu(stdscr):
 
         indexed = _apply_sort(indexed, sort_mode)
 
-        items = [f"{item.get('title', '?')}  [{item.get('resolution', '?')}]" for _, item in indexed]
+        items = [
+            f"{'⚠️ ' if _item_missing(item) else ''}{item.get('title', '?')}  [{item.get('resolution', '?')}]"
+            for _, item in indexed
+        ]
         n_items = len(items)
 
         cari_label = f'🔍 Ganti/hapus filter ("{keyword}")' if keyword else "🔍 Cari/filter..."
