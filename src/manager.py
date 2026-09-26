@@ -1,3 +1,4 @@
+import datetime
 import os
 import json
 import tempfile
@@ -18,6 +19,15 @@ _history_lock = threading.Lock()
 # Pasangan (judul, ekstensi) yang sudah "dipesan" download lain di sesi ini,
 # biar dua download paralel berjudul sama nggak saling menimpa file (lihat claim_title).
 _reserved_names = set()
+
+
+def _now_iso():
+    return datetime.datetime.now().astimezone().isoformat(timespec="seconds")
+
+
+def _file_exists(item):
+    fp = resolve_path(item.get("filename")) if item else None
+    return bool(fp) and os.path.exists(fp)
 
 
 def _atomic_write_json(path, data):
@@ -145,10 +155,18 @@ def _find_existing(history, title, resolution=None, video_id=None):
 
 
 def is_already_downloaded(title, resolution=None, video_id=None):
-    """Cek apakah video/audio ini sudah pernah diunduh. Lihat _find_existing() buat detail pencocokan."""
+    """
+    Cek apakah video/audio ini sudah pernah diunduh. Lihat _find_existing() buat detail pencocokan.
+
+    Kalau ADA catatannya di riwayat tapi file fisiknya udah nggak ada di disk (dihapus manual,
+    pindah folder, dll), dianggap BUKAN duplikat -- boleh diunduh ulang -- meski entrinya tetap
+    dikembalikan (item kedua) biar pemanggil bisa kasih tau "file sebelumnya hilang" kalau perlu.
+    """
     history = load_history()
     item = _find_existing(history, title, resolution=resolution, video_id=video_id)
-    return (item is not None), item
+    if item is None:
+        return False, None
+    return _file_exists(item), item
 
 
 def claim_title(title, ext):
@@ -169,7 +187,9 @@ def claim_title(title, ext):
                 if (item.get("title") or "").strip().lower() != title_norm:
                     continue
                 item_ext = os.path.splitext(item.get("filename") or "")[1].lower().lstrip(".")
-                if item_ext == ext_norm:
+                # File riwayat lama yang udah nggak ada di disk nggak dianggap bentrok --
+                # nggak ada file nyata yang bakal ketiban/rebutan nama.
+                if item_ext == ext_norm and _file_exists(item):
                     in_use = True
                     break
         _reserved_names.add(key)
@@ -178,21 +198,33 @@ def claim_title(title, ext):
 
 def save_file_record(title, filename, url, resolution, video_id=None):
     """
-    Simpan catatan hasil download ke download.json.
+    Simpan catatan hasil download ke download.json (dengan timestamp "downloaded_at").
     Thread-safe: aman dipanggil dari beberapa thread sekaligus (mode download
     paralel) -- baca, cek duplikat, dan tulis dilakukan sebagai satu blok atomik
     lewat _history_lock, jadi nggak ada entri yang saling menimpa/hilang.
+
+    Kalau entri lama buat video/resolusi ini masih ada tapi file fisiknya udah hilang
+    (unduh ulang setelah file dihapus manual), entri lama itu DIPERBARUI di tempat
+    (bukan nambah entri baru) -- riwayat nggak numpuk duplikat.
     """
     with _history_lock:
         history = load_history()
-        if _find_existing(history, title, resolution=resolution, video_id=video_id):
-            return False
+        existing = _find_existing(history, title, resolution=resolution, video_id=video_id)
+        if existing is not None:
+            if _file_exists(existing):
+                return False  # beneran masih ada -- jangan dicatat dobel
+            existing.update({
+                "id": video_id, "title": title, "filename": filename,
+                "url": url, "resolution": resolution, "downloaded_at": _now_iso(),
+            })
+            return save_history(history)
         history.append({
             "id": video_id,
             "title": title,
             "filename": filename,
             "url": url,
             "resolution": resolution,
+            "downloaded_at": _now_iso(),
         })
         return save_history(history)
 
