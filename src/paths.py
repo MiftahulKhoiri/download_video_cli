@@ -13,6 +13,7 @@ HISTORY_FILE = os.path.join(DOWNLOAD_DIR, "download.json")
 LOCK_FILE = os.path.join(DOWNLOAD_DIR, ".lock")
 LOG_FILE = os.path.join(DOWNLOAD_DIR, "app.log")
 CONFIG_FILE = os.path.join(BASE_DIR, "config.json")
+UPDATE_CACHE_FILE = os.path.join(DOWNLOAD_DIR, "update_cache.json")
 
 
 def resolve_path(path):
