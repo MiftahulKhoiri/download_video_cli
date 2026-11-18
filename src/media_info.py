@@ -7,7 +7,7 @@ import subprocess
 import yt_dlp
 
 from src.errors import clean_message, is_retryable
-from src.loading import Spinner, safe_print
+from src.reporter import report
 
 
 class _SilentYdlLogger:
@@ -80,7 +80,7 @@ def _fetch_info_with_retry(ydl_opts, url, spinner_message, retries=1, quiet=Fals
     last_exc = None
     for attempt in range(1, retries + 1):
         try:
-            with (contextlib.nullcontext() if quiet else Spinner(spinner_message)):
+            with (contextlib.nullcontext() if quiet else report().status(spinner_message)):
                 with yt_dlp.YoutubeDL(ydl_opts) as ydl:
                     return ydl.extract_info(url, download=False)
         except KeyboardInterrupt:
@@ -90,7 +90,7 @@ def _fetch_info_with_retry(ydl_opts, url, spinner_message, retries=1, quiet=Fals
             if not is_retryable(e):
                 break   # error permanen (tweet butuh login, video dihapus, URL salah): ulang = buang waktu
             if attempt < retries:
-                safe_print(f"⚠️  Percobaan {attempt}/{retries} gagal ambil info ({clean_message(e)}). Mencoba lagi...")
+                report().message(f"⚠️  Percobaan {attempt}/{retries} gagal ambil info ({clean_message(e)}). Mencoba lagi...")
     raise last_exc
 
 
@@ -146,7 +146,7 @@ def expand_playlist(url, cookies_file=None, retries=1, no_playlist=False):
                 vid = entry.get("id") or entry_url
                 entry_url = f"https://www.youtube.com/watch?v={vid}"
             else:
-                print(f"⚠️  Melewati entri playlist tanpa URL lengkap: {entry.get('id') or entry_url}")
+                report().message(f"⚠️  Melewati entri playlist tanpa URL lengkap: {entry.get('id') or entry_url}")
                 continue
         if entry_url:
             urls.append(entry_url)

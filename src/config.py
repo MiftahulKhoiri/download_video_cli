@@ -6,6 +6,7 @@ import tempfile
 from src import tui
 from src.paths import CONFIG_FILE
 from src.utils import parse_rate_limit, backup_corrupt_file
+from src.reporter import report
 
 DEFAULT_CONFIG = {
     "default_resolution": None,     # None = selalu tanya; atau angka misal 720
@@ -133,25 +134,25 @@ def check_config_integrity():
         with open(CONFIG_FILE, "r", encoding="utf-8") as f:
             data = json.load(f)
     except OSError as e:
-        print(f"⚠️  Gagal membaca {CONFIG_FILE} ({e}), pakai pengaturan default.")
+        report().message(f"⚠️  Gagal membaca {CONFIG_FILE} ({e}), pakai pengaturan default.")
         return
     except json.JSONDecodeError:
         backup = backup_corrupt_file(CONFIG_FILE)
         note = f" File lama diselamatkan ke '{os.path.basename(backup)}'." if backup else ""
-        print(f"⚠️  {CONFIG_FILE} rusak/nggak valid, pakai pengaturan default.{note}")
+        report().message(f"⚠️  {CONFIG_FILE} rusak/nggak valid, pakai pengaturan default.{note}")
         return
 
     if not isinstance(data, dict):
         backup = backup_corrupt_file(CONFIG_FILE)
         note = f" File lama diselamatkan ke '{os.path.basename(backup)}'." if backup else ""
-        print(f"⚠️  Isi {CONFIG_FILE} bukan format yang diharapkan, pakai pengaturan default.{note}")
+        report().message(f"⚠️  Isi {CONFIG_FILE} bukan format yang diharapkan, pakai pengaturan default.{note}")
         return
 
     merged = dict(DEFAULT_CONFIG)
     merged.update(data)
     fixed, reset = _validate_config(merged)
     if reset:
-        print(f"⚠️  Nilai pengaturan nggak valid buat: {', '.join(reset)} -- direset ke default.")
+        report().message(f"⚠️  Nilai pengaturan nggak valid buat: {', '.join(reset)} -- direset ke default.")
         save_config(fixed)
 
 
@@ -184,7 +185,7 @@ def save_config(config):
         _atomic_write_json(CONFIG_FILE, config)
         return True
     except OSError as e:
-        print(f"⚠️  Gagal menyimpan {CONFIG_FILE}: {e}")
+        report().message(f"⚠️  Gagal menyimpan {CONFIG_FILE}: {e}")
         return False
 
 
@@ -399,9 +400,14 @@ def _h_show_intro(stdscr, config):
 
 def _h_update_ytdlp(stdscr, config):
     from src.updater import check_for_update, update_yt_dlp
+    from src.tui_progress import run_busy
 
-    tui.loading_box(stdscr, "Cek Update", "🔍 Mengecek versi yt-dlp...")
-    installed, latest, is_outdated = check_for_update(timeout=5, use_cache=False)  # cek manual: selalu langsung ke PyPI
+    try:
+        # cek manual: selalu langsung ke PyPI (tanpa cache)
+        (installed, latest, is_outdated), _ = run_busy(
+            stdscr, "Cek Update", lambda: check_for_update(timeout=5, use_cache=False), "Mengecek versi yt-dlp...")
+    except KeyboardInterrupt:
+        return
 
     if installed is None:
         tui.message_box(stdscr, "Cek Update", "❌ Tidak bisa mendeteksi yt-dlp yang terpasang.")
@@ -422,12 +428,18 @@ def _h_update_ytdlp(stdscr, config):
     if idx != 0:
         return
 
-    tui.loading_box(stdscr, "Update yt-dlp", "⬇️  Mengupdate, mohon tunggu...")
-    ok, output = update_yt_dlp()
+    try:
+        (ok, output), _ = run_busy(stdscr, "Update yt-dlp", update_yt_dlp,
+                                   "Mengupdate yt-dlp (pip), bisa 1-2 menit...")
+    except KeyboardInterrupt:
+        return
     if ok:
         tui.message_box(stdscr, "Update Selesai", ["✅ yt-dlp berhasil diupdate.", "Restart aplikasi biar kepakai."])
     else:
-        tui.message_box(stdscr, "Update Gagal", f"❌ {output[:200]}")
+        # Baris terakhir output pip biasanya yang menjelaskan penyebabnya.
+        tail = [l for l in (output or "").strip().splitlines() if l.strip()][-8:]
+        tui.message_box(stdscr, "Update Gagal", ["❌ Update yt-dlp gagal:", ""] + tail + [
+            "", "Coba manual: pip install -U yt-dlp --break-system-packages"])
 
 
 # Urutan HARUS selaras sama urutan item di _build_items()

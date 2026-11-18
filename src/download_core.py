@@ -4,6 +4,7 @@ import glob
 import hashlib
 import importlib.util
 import os
+import re
 import shutil
 import subprocess
 import threading
@@ -14,10 +15,8 @@ from yt_dlp.utils import download_range_func
 
 from src.manager import ensure_output_folder, is_already_downloaded, save_file_record, claim_title
 from src.media_info import is_ffmpeg_available, get_video_info, _video_needs_merge, base_ydl_opts
-from src.loading import (
-    progress_hook, postprocessor_hook, reset_progress,
-    safe_print, noop_hook, format_size,
-)
+from src.loading import format_size
+from src.reporter import report
 from src.config import load_config
 from src import notify
 from src.logger import get_logger
@@ -49,6 +48,19 @@ class DownloadAborted(Exception):
 def _cancel_hook(d):
     if _cancel_event.is_set():
         raise DownloadAborted("dibatalkan")
+
+
+def request_cancel():
+    """Minta semua download yang sedang jalan berhenti (dipakai tombol batal di layar TUI)."""
+    _cancel_event.set()
+
+
+def reset_cancel():
+    _cancel_event.clear()
+
+
+def is_cancelled():
+    return _cancel_event.is_set()
 
 
 def _mutagen_available():
@@ -158,6 +170,10 @@ def _make_partial_tracker():
     return seen, hook
 
 
+# Nama file stream perantara yt-dlp sebelum merge: '<judul>.f<format_id>.<ext>'.
+_INTERMEDIATE_RE = re.compile(r"\.f[0-9A-Za-z_-]+\.[0-9A-Za-z]+$")
+
+
 def _cleanup_partial_files(paths):
     """
     Hapus sisa .part/.ytdl/.part-Frag* HANYA untuk file yang tercatat di `paths`.
@@ -167,6 +183,10 @@ def _cleanup_partial_files(paths):
     for fp in paths:
         base = fp[:-5] if fp.endswith(".part") else fp
         targets = [base + ".part", base + ".ytdl"] + glob.glob(glob.escape(base) + ".part-Frag*")
+        # Stream perantara yang SUDAH selesai tapi belum sempat digabung (mis. 'Judul.f137.mp4'
+        # video-only, nunggu audio-nya) -- tanpa ini file setengah jadi itu nyangkut di folder.
+        if _INTERMEDIATE_RE.search(os.path.basename(base)):
+            targets.append(base)
         for t in targets:
             try:
                 if os.path.isfile(t):
@@ -175,7 +195,7 @@ def _cleanup_partial_files(paths):
                 pass
 
 
-def _run_download(ydl_opts, url, expected_ext, retries, printer=print):
+def _run_download(ydl_opts, url, expected_ext, retries):
     """
     Jalankan extract_info(download=True) dengan retry otomatis kalau gagal.
     Return (result_info, filepath). Melempar exception terakhir kalau semua percobaan gagal.
@@ -197,7 +217,7 @@ def _run_download(ydl_opts, url, expected_ext, retries, printer=print):
             return result, filename
         except KeyboardInterrupt:
             _cleanup_partial_files(partials)
-            printer("\n⏹️  Download dibatalkan (Ctrl+C), file sementara sudah dibersihkan.")
+            report().message("\n⏹️  Download dibatalkan (Ctrl+C), file sementara sudah dibersihkan.")
             raise
         except DownloadAborted:
             _cleanup_partial_files(partials)
@@ -208,9 +228,10 @@ def _run_download(ydl_opts, url, expected_ext, retries, printer=print):
             log.warning(f"Percobaan {attempt}/{retries} gagal untuk {url}: {msg}")
             if not is_retryable(e):
                 break   # error permanen: retry cuma buang waktu
+            if _cancel_event.is_set():
+                break
             if attempt < retries:
-                printer(f"⚠️  Percobaan {attempt}/{retries} gagal ({msg}). Mencoba lagi...")
-                reset_progress()
+                report().retry(url, f"⚠️  Percobaan {attempt}/{retries} gagal ({msg}). Mencoba lagi...")
     log.error(f"Gagal unduh {url} setelah {attempt} percobaan: {clean_message(last_exc)}")
     raise last_exc
 
@@ -262,7 +283,7 @@ def _quarantine_bad_file(filepath):
         pass
 
 
-def _check_disk_space(folder, printer=print):
+def _check_disk_space(folder):
     """
     Cek ruang kosong di disk tempat folder download berada, sebelum mulai
     download banyak/paralel. Nggak pernah nge-block lewat input() (biar aman
@@ -277,10 +298,10 @@ def _check_disk_space(folder, printer=print):
         return True  # nggak bisa dicek -- jangan halangi proses cuma karena ini
 
     if free < MIN_FREE_SPACE_ABORT:
-        printer(f"❌ Ruang kosong tersisa cuma {format_size(free)}, terlalu sedikit buat mulai download. Dibatalkan.")
+        report().message(f"❌ Ruang kosong tersisa cuma {format_size(free)}, terlalu sedikit buat mulai download. Dibatalkan.")
         return False
     if free < MIN_FREE_SPACE_WARN:
-        printer(f"⚠️  Ruang kosong tersisa cuma {format_size(free)}. Download bisa gagal kalau habis di tengah jalan.")
+        report().message(f"⚠️  Ruang kosong tersisa cuma {format_size(free)}. Download bisa gagal kalau habis di tengah jalan.")
     return True
 
 
@@ -290,18 +311,26 @@ def notify_download_done(title):
         notify.notify("Download selesai", f"'{title}' berhasil diunduh")
 
 
-def _copy_to_termux_shared_storage(filepath, printer):
+def _copy_to_termux_shared_storage(filepath):
     if not filepath or not os.path.exists(filepath):
         return
     if not os.path.isdir(TERMUX_SHARED_DOWNLOADS):
-        printer("⚠️  Folder shared storage Termux belum siap. Jalankan 'termux-setup-storage' lalu izinkan akses storage.")
+        report().message("⚠️  Folder shared storage Termux belum siap. Jalankan 'termux-setup-storage' lalu izinkan akses storage.")
         return
     try:
         dest = os.path.join(TERMUX_SHARED_DOWNLOADS, os.path.basename(filepath))
         shutil.copy2(filepath, dest)
-        printer(f"📤 Disalin juga ke folder Download Android: {dest}")
+        report().message(f"📤 Disalin juga ke folder Download Android: {dest}")
     except OSError as e:
-        printer(f"⚠️  Gagal menyalin ke shared storage: {e}")
+        report().message(f"⚠️  Gagal menyalin ke shared storage: {e}")
+
+
+def _hooks_for(url):
+    """Progress & postprocessor hook yt-dlp yang meneruskan kejadian ke reporter aktif, ditandai URL-nya."""
+    return {
+        "progress_hooks": [lambda d: report().progress(url, d)],
+        "postprocessor_hooks": [lambda d: report().postprocess(url, d)],
+    }
 
 
 def download_single(url, target_height=None, resolution_label="terbaik", info=None,
@@ -328,31 +357,31 @@ def download_single(url, target_height=None, resolution_label="terbaik", info=No
         resolution_label = f"{resolution_label} [{range_label}]"
     filename_tag = f" [{range_label.replace(':', '.')}]" if range_label else ""
 
-    printer = safe_print if quiet_progress else print
-    folder = ensure_output_folder(config.get("download_folder"), printer=printer)
+    rep_ = report()
+    folder = ensure_output_folder(config.get("download_folder"), printer=rep_.message)
 
     if info is None:
         info = get_video_info(url, cookies_file=cookies_file, retries=retries, quiet=quiet_progress)
     title = info.get("title") or "video"
     video_id = info.get("id")
+    rep_.item_info(url, title, resolution_label)
 
     already, existing = is_already_downloaded(title, resolution_label, video_id=video_id)
     if already:
-        printer(f"⚠️  '{title}' ({resolution_label}) sudah pernah diunduh sebelumnya (file: {existing.get('filename')}). Dilewati.")
+        rep_.message(f"⚠️  '{title}' ({resolution_label}) sudah pernah diunduh sebelumnya (file: {existing.get('filename')}). Dilewati.")
         log.info(f"Duplikat dilewati: {title} ({resolution_label})")
+        rep_.item_done(url, STATUS_SKIP)
         return STATUS_SKIP
     if existing is not None:
-        printer(f"ℹ️  File lama '{existing.get('filename')}' sudah nggak ada di disk, mengunduh ulang '{title}'.")
+        rep_.message(f"ℹ️  File lama '{existing.get('filename')}' sudah nggak ada di disk, mengunduh ulang '{title}'.")
 
     if _video_needs_merge(info) and not is_ffmpeg_available():
-        printer(f"❌ '{title}' butuh ffmpeg buat menggabungkan video+audio, tapi ffmpeg belum terpasang. Dilewati.")
-        printer("    Install dulu: 'pkg install ffmpeg' (Termux) atau 'sudo apt install ffmpeg' (Linux).")
+        rep_.message(f"❌ '{title}' butuh ffmpeg buat menggabungkan video+audio, tapi ffmpeg belum terpasang. Dilewati.\n"
+                     "    Install dulu: 'pkg install ffmpeg' (Termux) atau 'sudo apt install ffmpeg' (Linux).")
+        rep_.item_done(url, STATUS_FAIL, "ffmpeg belum terpasang", shown=True)
         return STATUS_FAIL
 
     filename_tag += _collision_tag(title, "mp4", video_id, url)
-
-    if not quiet_progress:
-        reset_progress()
 
     ydl_opts = {
         **base_ydl_opts(),
@@ -363,8 +392,7 @@ def download_single(url, target_height=None, resolution_label="terbaik", info=No
         "trim_file_name": MAX_FILENAME_CHARS,
         "merge_output_format": "mp4",
         "continuedl": True,
-        "progress_hooks": [noop_hook] if quiet_progress else [progress_hook],
-        "postprocessor_hooks": [noop_hook] if quiet_progress else [postprocessor_hook],
+        **_hooks_for(url),
         "noprogress": True,
     }
     if subtitle_langs:
@@ -383,26 +411,27 @@ def download_single(url, target_height=None, resolution_label="terbaik", info=No
         ydl_opts["download_ranges"] = download_range_func(None, [(start_sec, end_sec)])
         ydl_opts["force_keyframes_at_cuts"] = True
 
-    if quiet_progress:
-        safe_print(f"⬇️  Mulai unduh: {title}")
+    rep_.item_start(url, title)
     log.info(f"Mulai unduh: {title} ({url}) [{resolution_label}]")
 
     with notify.wake_lock():
-        result, filename = _run_download(ydl_opts, url, expected_ext="mp4", retries=retries, printer=printer)
+        result, filename = _run_download(ydl_opts, url, expected_ext="mp4", retries=retries)
 
         valid, alasan = _verify_downloaded_file(filename)
         if not valid:
             _quarantine_bad_file(filename)
-            printer(f"❌ '{title}' gagal diverifikasi: {alasan}. Tidak disimpan ke riwayat, coba unduh ulang.")
+            rep_.message(f"❌ '{title}' gagal diverifikasi: {alasan}. Tidak disimpan ke riwayat, coba unduh ulang.")
             log.error(f"Verifikasi gagal untuk {title} ({filename}): {alasan}")
+            rep_.item_done(url, STATUS_FAIL, f"gagal diverifikasi: {alasan}", shown=True)
             return STATUS_FAIL
 
         save_file_record(title, filename, url, resolution_label, video_id=video_id)
-        printer(f"\n✅ Selesai! '{title}' berhasil diunduh.")
+        rep_.message(f"\n✅ Selesai! '{title}' berhasil diunduh.")
         log.info(f"Selesai: {title} -> {filename}")
         if termux_shared:
-            _copy_to_termux_shared_storage(filename, printer)
+            _copy_to_termux_shared_storage(filename)
         notify_download_done(title)
+        rep_.item_done(url, STATUS_OK)
         return STATUS_OK
 
 
@@ -419,59 +448,73 @@ def _run_batch(url_list, single_fn, config, first_info=None, **single_kwargs):
     if not url_list:
         return hasil
 
-    folder = ensure_output_folder(config.get("download_folder"))
+    rep_ = report()
+    cookies_used = bool(config.get("cookies_file"))
+    folder = ensure_output_folder(config.get("download_folder"), printer=rep_.message)
     if not _check_disk_space(folder):
         hasil["gagal"] = len(url_list)
+        rep_.summary(hasil)
         return hasil
 
     active = min(workers, len(url_list))
+    rep_.batch_start(url_list, active)
 
     if active <= 1:
         for i, url in enumerate(url_list, 1):
-            print(f"\n=== [{i}/{len(url_list)}] {url} ===")
+            if _cancel_event.is_set():
+                break   # dibatalkan dari layar TUI: sisa antrean nggak usah dijalankan
+            rep_.batch_item(i, len(url_list), url)
             try:
                 info = first_info if (i == 1 and first_info is not None) else None
                 status = single_fn(url, info=info, config=config, quiet_progress=False, **single_kwargs)
                 hasil[status] += 1
             except KeyboardInterrupt:
                 raise
-            except Exception as e:
-                print(f"❌ Gagal mengunduh {url}: {explain_error(e, cookies_used=bool(config.get('cookies_file')))}")
+            except DownloadAborted:
                 hasil["gagal"] += 1
+                rep_.item_done(url, STATUS_FAIL, "dibatalkan")
+                break
+            except Exception as e:
+                hasil["gagal"] += 1
+                rep_.item_done(url, STATUS_FAIL, explain_error(e, cookies_used=cookies_used))
     else:
         # Batas kecepatan di yt-dlp berlaku PER download -- dibagi rata biar total tetap sesuai pengaturan.
         total_limit = _parse_rate_limit(config.get("rate_limit"))
         per_worker_limit = max(1, total_limit // active) if total_limit else None
 
-        safe_print(f"\n⚡ Mode paralel aktif: {active} download sekaligus.")
+        rep_.message(f"\n⚡ Mode paralel aktif: {active} download sekaligus.")
         if total_limit:
-            safe_print(f"   Batas kecepatan {config.get('rate_limit')} dibagi rata ke tiap download.")
-        safe_print("")
+            rep_.message(f"   Batas kecepatan {config.get('rate_limit')} dibagi rata ke tiap download.")
+        rep_.message("")
 
         executor = ThreadPoolExecutor(max_workers=active)
         futures = {}
         try:
+            def _job(url):
+                if _cancel_event.is_set():
+                    raise DownloadAborted("dibatalkan")
+                rep_.item_info(url, None)   # tandai "lagi diproses" (judul belum diketahui)
+                return single_fn(url, config=config, quiet_progress=True,
+                                 rate_limit_bytes=per_worker_limit, **single_kwargs)
+
             for url in url_list:
-                fut = executor.submit(
-                    single_fn, url, config=config, quiet_progress=True,
-                    rate_limit_bytes=per_worker_limit, **single_kwargs,
-                )
-                futures[fut] = url
+                futures[executor.submit(_job, url)] = url
             for i, future in enumerate(as_completed(futures), 1):
                 url = futures[future]
                 try:
                     status = future.result()
                     hasil[status] += 1
-                    safe_print(f"[{i}/{len(url_list)}] Selesai: {url}")
+                    rep_.batch_tick(i, len(url_list), url, status)
                 except Exception as e:
                     hasil["gagal"] += 1
-                    safe_print(f"[{i}/{len(url_list)}] ❌ Gagal: {url}\n   "
-                               f"{explain_error(e, cookies_used=bool(config.get('cookies_file')))}")
+                    detail = "dibatalkan" if isinstance(e, DownloadAborted) else explain_error(e, cookies_used=cookies_used)
+                    rep_.item_done(url, STATUS_FAIL, detail)
+                    rep_.batch_tick(i, len(url_list), url, STATUS_FAIL, detail)
         except KeyboardInterrupt:
             # Antrean yang belum jalan dibatalkan, yang lagi jalan disuruh berhenti (lewat hook progress).
             # Tanpa ini, 'with ThreadPoolExecutor' baru lepas setelah SEMUA antrean selesai diunduh.
             _cancel_event.set()
-            safe_print("\n⏹️  Dibatalkan (Ctrl+C), menghentikan antrean & download yang sedang jalan...")
+            rep_.message("\n⏹️  Dibatalkan (Ctrl+C), menghentikan antrean & download yang sedang jalan...")
             try:
                 executor.shutdown(wait=False, cancel_futures=True)
             except TypeError:  # Python 3.8: belum ada cancel_futures
@@ -482,7 +525,7 @@ def _run_batch(url_list, single_fn, config, first_info=None, **single_kwargs):
         else:
             executor.shutdown(wait=True)
 
-    print(f"\nRingkasan: {hasil['berhasil']} berhasil, {hasil['dilewati']} dilewati (duplikat), {hasil['gagal']} gagal.")
+    rep_.summary(hasil)
     return hasil
 
 
@@ -517,12 +560,13 @@ def download_audio_single(url, info=None, audio_format=None, quality=None, confi
     embed_metadata = config.get("embed_metadata", True)
     termux_shared = config.get("termux_shared_storage", False)
 
-    printer = safe_print if quiet_progress else print
-    folder = ensure_output_folder(config.get("download_folder"), printer=printer)
+    rep_ = report()
+    folder = ensure_output_folder(config.get("download_folder"), printer=rep_.message)
 
     if not is_ffmpeg_available():
-        printer("❌ Convert audio butuh ffmpeg, tapi belum terpasang. Dilewati.")
-        printer("    Install dulu: 'pkg install ffmpeg' (Termux) atau 'sudo apt install ffmpeg' (Linux).")
+        rep_.message("❌ Convert audio butuh ffmpeg, tapi belum terpasang. Dilewati.\n"
+                     "    Install dulu: 'pkg install ffmpeg' (Termux) atau 'sudo apt install ffmpeg' (Linux).")
+        rep_.item_done(url, STATUS_FAIL, "ffmpeg belum terpasang", shown=True)
         return STATUS_FAIL
 
     if info is None:
@@ -535,19 +579,18 @@ def download_audio_single(url, info=None, audio_format=None, quality=None, confi
     if range_label:
         resolution_label = f"{resolution_label} [{range_label}]"
     filename_tag = f" [{range_label.replace(':', '.')}]" if range_label else ""
+    rep_.item_info(url, title, resolution_label)
 
     already, existing = is_already_downloaded(title, resolution_label, video_id=video_id)
     if already:
-        printer(f"⚠️  '{title}' ({resolution_label}) sudah pernah diunduh sebelumnya (file: {existing.get('filename')}). Dilewati.")
+        rep_.message(f"⚠️  '{title}' ({resolution_label}) sudah pernah diunduh sebelumnya (file: {existing.get('filename')}). Dilewati.")
         log.info(f"Duplikat dilewati: {title} ({resolution_label})")
+        rep_.item_done(url, STATUS_SKIP)
         return STATUS_SKIP
     if existing is not None:
-        printer(f"ℹ️  File lama '{existing.get('filename')}' sudah nggak ada di disk, mengunduh ulang '{title}'.")
+        rep_.message(f"ℹ️  File lama '{existing.get('filename')}' sudah nggak ada di disk, mengunduh ulang '{title}'.")
 
     filename_tag += _collision_tag(title, audio_format, video_id, url)
-
-    if not quiet_progress:
-        reset_progress()
 
     postprocessors = [{"key": "FFmpegExtractAudio", "preferredcodec": audio_format}]
     if audio_format in LOSSY_AUDIO_FORMATS:
@@ -561,8 +604,7 @@ def download_audio_single(url, info=None, audio_format=None, quality=None, confi
         "trim_file_name": MAX_FILENAME_CHARS,
         "continuedl": True,
         "postprocessors": postprocessors,
-        "progress_hooks": [noop_hook] if quiet_progress else [progress_hook],
-        "postprocessor_hooks": [noop_hook] if quiet_progress else [postprocessor_hook],
+        **_hooks_for(url),
         "noprogress": True,
     }
     if embed_metadata:
@@ -575,7 +617,7 @@ def download_audio_single(url, info=None, audio_format=None, quality=None, confi
             embed_thumbnail = False
             if not _mutagen_warned:
                 _mutagen_warned = True
-                printer(f"ℹ️  Thumbnail nggak di-embed ke file {audio_format}: butuh paket 'mutagen' (pip install mutagen).")
+                rep_.message(f"ℹ️  Thumbnail nggak di-embed ke file {audio_format}: butuh paket 'mutagen' (pip install mutagen).")
         if embed_thumbnail:
             ydl_opts["writethumbnail"] = True
             ydl_opts["postprocessors"].append({"key": "EmbedThumbnail"})
@@ -588,26 +630,27 @@ def download_audio_single(url, info=None, audio_format=None, quality=None, confi
         ydl_opts["download_ranges"] = download_range_func(None, [(start_sec, end_sec)])
         ydl_opts["force_keyframes_at_cuts"] = True
 
-    if quiet_progress:
-        safe_print(f"⬇️  Mulai unduh ({audio_format}): {title}")
+    rep_.item_start(url, title, tag=audio_format)
     log.info(f"Mulai unduh audio: {title} ({url}) [{resolution_label}]")
 
     with notify.wake_lock():
-        result, filename = _run_download(ydl_opts, url, expected_ext=audio_format, retries=retries, printer=printer)
+        result, filename = _run_download(ydl_opts, url, expected_ext=audio_format, retries=retries)
 
         valid, alasan = _verify_downloaded_file(filename)
         if not valid:
             _quarantine_bad_file(filename)
-            printer(f"❌ '{title}' gagal diverifikasi: {alasan}. Tidak disimpan ke riwayat, coba unduh ulang.")
+            rep_.message(f"❌ '{title}' gagal diverifikasi: {alasan}. Tidak disimpan ke riwayat, coba unduh ulang.")
             log.error(f"Verifikasi gagal untuk {title} ({filename}): {alasan}")
+            rep_.item_done(url, STATUS_FAIL, f"gagal diverifikasi: {alasan}", shown=True)
             return STATUS_FAIL
 
         save_file_record(title, filename, url, resolution_label, video_id=video_id)
-        printer(f"\n✅ Selesai! '{title}' ({resolution_label}) berhasil diunduh.")
+        rep_.message(f"\n✅ Selesai! '{title}' ({resolution_label}) berhasil diunduh.")
         log.info(f"Selesai: {title} -> {filename}")
         if termux_shared:
-            _copy_to_termux_shared_storage(filename, printer)
+            _copy_to_termux_shared_storage(filename)
         notify_download_done(f"{title} ({audio_format})")
+        rep_.item_done(url, STATUS_OK)
         return STATUS_OK
 
 

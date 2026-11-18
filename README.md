@@ -23,7 +23,7 @@ Script Python3 untuk mengunduh video dan audio dari **YouTube** dan **X (Twitter
 - **Cek ruang disk kosong** sebelum mulai download banyak/paralel — batal otomatis kalau kritis, warning kalau menipis (nggak pernah nge-block nunggu input, aman buat cron)
 - **Lock file** — cegah dua proses (mode menu & mode CLI, atau dua CLI/cron sekaligus) jalan bersamaan dan rebutan tulis `download.json`. Dikunci lewat sistem operasi (`flock`), jadi otomatis lepas walau proses crash/di-kill — nggak ada lock "nyangkut"
 - **Wake-lock Termux yang akurat di mode paralel** — HP nggak bakal ketiduran duluan di tengah proses walau ada beberapa download paralel yang selesai di waktu berbeda-beda (lock baru dilepas setelah SEMUA proses dalam batch selesai)
-- Ctrl+C ditangani rapi — file `.part`/`.ytdl` sisa milik download yang dibatalkan otomatis dibersihkan (file lain di folder tujuan nggak disentuh). Di mode paralel, antrean langsung dihentikan dan download yang lagi jalan ikut berhenti. Di mode menu, Ctrl+C/error pas download cuma membatalkan download itu dan kembali ke menu
+- Ctrl+C ditangani rapi — file `.part`/`.ytdl` dan stream perantara (mis. `Judul.f137.mp4` yang belum sempat digabung) milik download yang dibatalkan otomatis dibersihkan (file lain di folder tujuan nggak disentuh). Di mode paralel, antrean langsung dihentikan dan download yang lagi jalan ikut berhenti. Di mode menu, Ctrl+C/error pas download cuma membatalkan download itu dan kembali ke menu
 - **Deteksi duplikat sadar file hilang** — kalau file hasil download sebelumnya dihapus manual/dipindah, entrinya nggak dianggap "sudah ada" lagi, jadi boleh diunduh ulang (entri riwayat lama otomatis diperbarui di tempat, bukan nambah duplikat baru)
 
 **Organisasi & riwayat**
@@ -35,6 +35,12 @@ Script Python3 untuk mengunduh video dan audio dari **YouTube** dan **X (Twitter
 - Menu **Tentang** — lihat versi aplikasi, yt-dlp, ffmpeg, dan Python yang lagi kepakai
 
 **Tampilan (TUI)**
+- **Mode menu 100% TUI (curses)** — dari animasi pembuka, layar sambutan (logo + cek update yt-dlp), semua menu, sampai proses download: nggak ada lagi bagian yang keluar ke teks biasa atau nunggu "Tekan Enter" di terminal mentah
+- **Layar progress download** — tiap item punya baris sendiri: judul, bar %, ukuran, kecepatan, dan sisa waktu. Di **mode paralel semua download yang lagi jalan kelihatan bergerak bersamaan**, plus progres total (berhasil/dilewati/gagal). Pesan peringatan & error (lengkap dengan petunjuk 💡) masuk ke panel **Pesan** di bawah, yang bisa digulir (↑↓) setelah selesai
+- **Batalkan dengan aman** — `Esc` 2x atau `Ctrl+C` di layar progress: antrean dihentikan, download yang lagi jalan berhenti, file sementara (termasuk stream video/audio setengah jadi yang belum digabung) dibersihkan, lalu kembali ke menu
+- Cek URL/playlist, ambil info video, dan update yt-dlp tampil di kotak dengan spinner; URL yang gagal dirangkum dalam satu kotak pesan
+- Warna aksen (hijau = berhasil, merah = gagal, dll) otomatis menyesuaikan tema warna pilihanmu biar selalu kebaca
+- Mode CLI (`--url`) **tetap teks biasa** seperti sebelumnya, biar output-nya aman dialihkan ke file/log dari cron atau script
 - Tahan **resize terminal** di tengah jalan (mis. keyboard Termux muncul/hilang, nyusutin tinggi layar) — layout dihitung ulang tiap frame, nggak nyangkut pakai ukuran lama yang udah nggak muat
 - Perataan & pemotongan teks di menu **sadar lebar tampilan** — judul video berisi emoji atau karakter CJK (Cina/Jepang/Korea) nggak bikin kolom menu geser/berantakan
 - Judul panjang dipotong di **tengah** (bukan ujung kanan), jadi tag penting di akhir teks (mis. `[720p]`) tetap kelihatan, bukan ikut kepotong
@@ -63,14 +69,17 @@ project/
 ├── tests/                       # Uji unit ringan (tanpa jaringan/yt-dlp beneran) -- lihat bagian Testing
 ├── src/
 │   ├── __init__.py
-│   ├── tui.py                # Widget menu/input ala raspi-config (curses), tema warna
+│   ├── tui.py                # Widget menu/input ala raspi-config (curses), tema & warna aksen
+│   ├── tui_progress.py       # Layar progress download TUI (single & paralel) + kotak spinner proses singkat
+│   ├── tui_startup.py        # Animasi pembuka & layar sambutan (logo, cek update yt-dlp) versi TUI
+│   ├── reporter.py           # Lapisan pelapor: mesin download kirim "kejadian", ditampilkan sebagai teks (CLI) atau TUI (menu)
 │   ├── dashboard.py          # Tampilan dashboard/riwayat, total ukuran, cari/filter/urutkan, hapus entri
 │   ├── download_menu.py      # Alur menu interaktif buat download (pilih resolusi/format/potong durasi, dll)
 │   ├── download_core.py      # Mesin download inti: single/batch/paralel/retry/potong durasi/verifikasi
 │   ├── media_info.py         # Ambil info video & expand playlist (dengan retry)
 │   ├── manager.py            # Kelola download.json (riwayat) + folder tujuan hasil download
 │   ├── config.py             # Baca/simpan pengaturan (config.json) + menu Pengaturan
-│   ├── loading.py            # Progress bar, spinner, print thread-safe, format ukuran file
+│   ├── loading.py            # Progress bar & spinner versi teks (mode CLI), print thread-safe, format ukuran file
 │   ├── updater.py            # Cek & update yt-dlp
 │   ├── logger.py             # Logger ke download/app.log
 │   ├── lock.py               # Cegah proses ganda jalan bersamaan
@@ -148,7 +157,11 @@ python3 main.py
 
 Pas start, aplikasi otomatis:
 1. Ambil lock (`download/.lock`) — kalau ada proses lain (menu/CLI) yang masih jalan, aplikasi langsung keluar dengan pesan, nggak lanjut.
-2. Cek singkat apakah yt-dlp kamu ketinggalan versi (nggak blocking, aman kalau offline) — kasih notice satu baris kalau perlu update.
+2. Tampilkan animasi pembuka (tombol apa saja = lewati; bisa dimatikan permanen), lalu layar sambutan: logo, hasil cek versi yt-dlp (aman kalau offline), peringatan kalau ffmpeg nggak ada, dan pemberitahuan lain (mis. pengaturan yang direset). `Enter` = masuk menu, `q` = keluar.
+
+Mode menu butuh terminal interaktif. Kalau dijalankan tanpa terminal (dari pipe/cron), aplikasi keluar rapi dengan petunjuk buat pakai mode CLI (`--url`).
+
+**Tombol di layar progress download:** `Esc` 2x atau `Ctrl+C` = batalkan · setelah selesai: `↑↓`/`PgUp`/`PgDn` = gulir pesan, `Enter`/`Esc` = kembali ke menu.
 
 ## 🖥️ Menu Utama
 
@@ -335,7 +348,7 @@ Di sistem tanpa `flock`, aplikasi memakai cara cadangan: file `.lock` dibuat eks
 - Embed thumbnail tidak berlaku untuk format WAV (keterbatasan format, bukan bug). Untuk OPUS/FLAC butuh paket `mutagen`; kalau belum terpasang, thumbnail dilewati (audionya tetap diunduh).
 - Dua video berjudul sama tidak saling menimpa: video berikutnya diberi ` [ID video]` di nama file. Nama file juga dipangkas maksimal 120 karakter (di luar ekstensi) supaya tidak kena "File name too long".
 - File yang gagal verifikasi otomatis disingkirkan (0 byte dihapus, yang rusak diganti nama `.corrupt`) supaya unduh ulang tidak dilewati yt-dlp sebagai "sudah ada".
-- Mode paralel mengunduh beberapa video sekaligus — pertimbangkan kecepatan koneksi, jangan set terlalu tinggi di jaringan yang lambat/terbatas (misal seluler). Dibatasi maksimal 8 sekaligus (baik lewat Pengaturan maupun `--parallel`) buat jaga-jaga dari OOM/overheat di HP/Pi. Progress bar realtime otomatis nonaktif di mode ini (diganti log ringkas per video) biar output beberapa thread nggak tumpang tindih.
+- Mode paralel mengunduh beberapa video sekaligus — pertimbangkan kecepatan koneksi, jangan set terlalu tinggi di jaringan yang lambat/terbatas (misal seluler). Dibatasi maksimal 8 sekaligus (baik lewat Pengaturan maupun `--parallel`) buat jaga-jaga dari OOM/overheat di HP/Pi. Di mode menu, layar progress TUI menampilkan semua download paralel sekaligus (satu baris per item). Di mode CLI, progress bar realtime otomatis nonaktif di mode ini (diganti log ringkas per video) biar output beberapa thread nggak tumpang tindih.
 - Preferensi h264/m4a cuma tie-breaker di antara format yang KUALITASNYA setara — bukan filter/paksaan, dan nggak menjamin hasil selalu bisa diputar di semua pemutar video.
 - Potong durasi & pemilihan subfolder interaktif cuma tersedia buat download 1 item (bukan mode banyak/playlist/CLI).
 - Verifikasi file pakai `ffprobe` kalau tersedia; kalau tidak, cuma dicek ukurannya (bukan 0 byte) — jadi validasinya nggak sedalam kalau `ffprobe` ada.
@@ -363,7 +376,9 @@ python3 -m unittest discover -s tests -v
 | Folder penyimpanan custom nggak kepake, balik ke `download/` | Folder itu gagal dibuat/ditulisi (path salah, storage belum ke-mount, izin ditolak) — cek pesan peringatannya, perbaiki path/izin lewat Pengaturan > 10 |
 | Notifikasi/wake-lock Termux tidak berfungsi | Pastikan `pkg install termux-api` sudah dijalankan DAN app Termux:API sudah diinstall dari F-Droid/Play Store |
 | File tidak muncul di `~/storage/downloads` | Jalankan `termux-setup-storage` dulu, izinkan akses storage, baru aktifkan opsi di Pengaturan > 12 |
-| Progress bar berantakan di mode paralel | Ini normal — mode paralel sengaja memakai log ringkas per video, bukan progress bar realtime, biar output beberapa thread tidak tumpang tindih |
+| Mode CLI paralel nggak ada progress bar | Ini normal — di mode CLI, mode paralel sengaja memakai log ringkas per video biar output beberapa thread tidak tumpang tindih. Mau lihat progress tiap download? Pakai mode menu (layar progress TUI) |
+| Mode menu keluar dengan pesan "butuh terminal interaktif" | Mode menu (curses) nggak bisa jalan dari pipe/cron/tanpa keyboard. Buat otomatisasi pakai mode CLI: `python3 main.py --url URL` |
+| Tampilan TUI kepotong / "Layar terlalu kecil" | Perbesar jendela terminal (minimal ~30x8). Di Termux, sembunyikan keyboard atau perkecil font (pinch) |
 | `pip install --upgrade yt-dlp` gagal dari menu Pengaturan | Beberapa sistem butuh izin tambahan — coba manual: `pip install -U yt-dlp --break-system-packages` (Termux/Debian modern) |
 | "Ada proses lain yang masih jalan" padahal nggak ada | Cek dulu `pgrep -f main.py` — mungkin ada menu/cron yang benar-benar masih jalan. Lock lepas otomatis kalau prosesnya mati; kalau tetap yakin nggak ada, `rm download/.lock` lalu jalankan lagi |
 | Muncul pesan riwayat/pengaturan "rusak" | File lama diselamatkan otomatis sebagai `download.json.corrupt-<waktu>` / `config.json.corrupt-<waktu>` — bisa dibuka manual buat menyelamatkan isinya |

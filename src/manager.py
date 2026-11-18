@@ -7,6 +7,7 @@ import threading
 from src.logger import get_logger
 from src.paths import DOWNLOAD_DIR, HISTORY_FILE, resolve_path  # noqa: F401  (DOWNLOAD_DIR/HISTORY_FILE tetap bisa diimpor dari sini)
 from src.utils import backup_corrupt_file
+from src.reporter import report
 
 log = get_logger()
 
@@ -60,7 +61,7 @@ def ensure_download_folder():
     return DOWNLOAD_DIR
 
 
-def ensure_output_folder(custom_path=None, printer=print):
+def ensure_output_folder(custom_path=None, printer=None):
     """
     Pastikan folder TUJUAN hasil download (video/audio beneran) ada & bisa
     ditulisi, lalu return path-nya. Beda dari ensure_download_folder(): itu
@@ -86,7 +87,7 @@ def ensure_output_folder(custom_path=None, printer=print):
         os.remove(probe_path)
         return folder
     except OSError as e:
-        printer(f"⚠️  Folder penyimpanan '{folder}' nggak bisa dipakai ({e}). Pakai folder default 'download/' dulu.")
+        (printer or report().message)(f"⚠️  Folder penyimpanan '{folder}' nggak bisa dipakai ({e}). Pakai folder default 'download/' dulu.")
         return ensure_download_folder()
 
 
@@ -102,14 +103,14 @@ def load_history():
         return [item for item in data if isinstance(item, dict)]
     except OSError as e:
         # Gagal BACA (izin/IO), bukan isinya yang rusak -- jangan diapa-apain filenya.
-        print(f"⚠️  Gagal membaca riwayat download ({HISTORY_FILE}): {e}. Menggunakan riwayat kosong.")
+        report().message(f"⚠️  Gagal membaca riwayat download ({HISTORY_FILE}): {e}. Menggunakan riwayat kosong.")
         return []
     except ValueError as e:
         # Isinya rusak. Selamatkan dulu ke file backup, kalau nggak riwayat lama bakal
         # ketimpa begitu ada download berikutnya yang menyimpan riwayat baru.
         backup = backup_corrupt_file(HISTORY_FILE)
         note = f" File lama diselamatkan ke '{os.path.basename(backup)}'." if backup else ""
-        print(f"⚠️  Riwayat download ({HISTORY_FILE}) rusak: {e}.{note} Memulai riwayat kosong.")
+        report().message(f"⚠️  Riwayat download ({HISTORY_FILE}) rusak: {e}.{note} Memulai riwayat kosong.")
         log.error(f"Riwayat rusak ({e}); backup: {backup}")
         return []
 
@@ -121,7 +122,7 @@ def save_history(data):
         _atomic_write_json(HISTORY_FILE, data)
         return True
     except OSError as e:
-        print(f"⚠️  Gagal menyimpan riwayat download ke {HISTORY_FILE}: {e}")
+        report().message(f"⚠️  Gagal menyimpan riwayat download ke {HISTORY_FILE}: {e}")
         return False
 
 
@@ -248,7 +249,7 @@ def delete_entry(index, remove_file=False):
                 try:
                     os.remove(filename)
                 except OSError as e:
-                    print(f"⚠️  Gagal menghapus file {filename}: {e}")
+                    report().message(f"⚠️  Gagal menghapus file {filename}: {e}")
 
         save_history(history)
         return True, item
@@ -270,7 +271,7 @@ def clear_history(remove_files=False):
                     try:
                         os.remove(filename)
                     except OSError as e:
-                        print(f"⚠️  Gagal menghapus file {filename}: {e}")
+                        report().message(f"⚠️  Gagal menghapus file {filename}: {e}")
 
         save_history([])
         return count

@@ -6,13 +6,12 @@ from src.dashboard import run_dashboard_menu
 from src.download_menu import run_download_menu
 from src.media_info import expand_playlist
 from src.download_core import download_many, download_audio_many
-from src.loading import clear_screen
-from src.logo import show_logo, show_intro
 from src.config import load_config, _settings_loop, check_config_integrity, MAX_PARALLEL_WORKERS, MAX_RETRY_COUNT
 from src.lock import AppLock
-from src.updater import startup_check_and_notify
 from src.utils import parse_rate_limit
 from src.errors import explain_error
+from src.reporter import BufferReporter, use_reporter
+from src.tui_startup import intro_tui, welcome_screen
 from src import tui
 
 APP_VERSION = "1.1.0"
@@ -160,10 +159,24 @@ def _show_about(stdscr):
     ])
 
 
-def _interactive_app(stdscr):
-    """Satu sesi curses yang membungkus seluruh menu interaktif (Dashboard, Download, Pengaturan)."""
+def _show_notices(stdscr, session):
+    """Tampilkan pesan yang tertampung selama sesi (mis. gagal hapus file, riwayat rusak) di kotak pesan."""
+    notices = session.drain()
+    if notices:
+        lines = []
+        for n in notices:
+            lines.extend(n.split("\n"))
+        tui.message_box(stdscr, "Pemberitahuan", lines)
+
+
+def _interactive_app(stdscr, session, show_intro):
+    """Satu sesi curses yang membungkus SELURUH mode menu: intro, layar pembuka, dan semua menu."""
     cfg = load_config()
     tui.init_theme(stdscr, cfg.get("bg_color", "putih"), cfg.get("text_color", "hitam"))
+    if show_intro:
+        intro_tui(stdscr)
+    if not welcome_screen(stdscr, session.drain()):
+        return
     while True:
         idx = tui.menu(
             stdscr, "MENU UTAMA",
@@ -180,6 +193,7 @@ def _interactive_app(stdscr):
             _settings_loop(stdscr)
         elif idx == 3:
             _show_about(stdscr)
+        _show_notices(stdscr, session)
 
 
 def main():
@@ -203,25 +217,27 @@ def main():
                 print("\n\n⏹️  Dibatalkan oleh user.")
                 return EXIT_INTERRUPTED
 
+        if not (sys.stdin.isatty() and sys.stdout.isatty()):
+            # Mode menu (curses) butuh terminal interaktif. Dijalankan dari pipe/cron/tanpa
+            # keyboard -> keluar rapi dengan petunjuk, bukan crash atau layar berantakan.
+            print("👋 Mode menu butuh terminal interaktif. Buat script/cron pakai mode CLI: "
+                  "python3 main.py --url URL (lihat --help).")
+            return EXIT_OK
+
+        # Selama sesi menu, semua pesan dari mesin (config/riwayat/folder) ditampung dulu,
+        # lalu ditampilkan di kotak TUI -- print() di tengah curses bikin layar berantakan.
+        session = BufferReporter()
         try:
-            check_config_integrity()
-            config = load_config()
-            if config.get("show_intro", True) and not args.no_intro:
-                show_intro()
-            clear_screen()
-            show_logo()
-            startup_check_and_notify()
-            try:
-                input("Tekan Enter untuk masuk ke menu...")
-            except EOFError:
-                # stdin ditutup (Ctrl+D, atau dijalankan tanpa terminal) -- keluar rapi tanpa traceback.
-                print("\n👋 Input ditutup, sampai jumpa!")
-                return EXIT_OK
-            curses.wrapper(_interactive_app)
-            clear_screen()
+            with use_reporter(session):
+                check_config_integrity()
+                config = load_config()
+                show_intro = config.get("show_intro", True) and not args.no_intro
+                curses.wrapper(_interactive_app, session, show_intro)
             print("Sampai jumpa!")
         except KeyboardInterrupt:
-            print("\n\n👋 Dibatalkan, sampai jumpa!")
+            print("\n👋 Dibatalkan, sampai jumpa!")
+        for leftover in session.drain():   # pesan yang belum sempat tampil (mis. keluar via Ctrl+C)
+            print(leftover)
         return EXIT_OK
 
 

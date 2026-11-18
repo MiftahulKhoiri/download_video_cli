@@ -19,6 +19,26 @@ ESC = 27
 PAIR_NORMAL = 1    # warna tulisan di atas warna latar -- dasar kotak & background
 PAIR_SELECT = 2    # dibalik dari PAIR_NORMAL -- item yang lagi disorot
 PAIR_TITLE = 3     # sama kayak PAIR_NORMAL, dipakai buat judul kotak (dicetak tebal)
+PAIR_OK = 4        # aksen: berhasil (hijau)
+PAIR_ERR = 5       # aksen: gagal (merah)
+PAIR_WARN = 6      # aksen: peringatan / dilewati
+PAIR_ACCENT = 7    # aksen: progress bar, info
+
+# Urutan warna yang dicoba buat tiap aksen -- dipakai warna pertama yang BEDA dari
+# warna latar (kalau semua sama, jatuh ke warna tulisan), biar aksen selalu kelihatan.
+_ACCENT_PREFS_LIGHT_BG = {   # latar terang: putih/kuning/cyan/hijau
+    PAIR_OK: ("hijau", "biru"),
+    PAIR_ERR: ("merah", "magenta"),
+    PAIR_WARN: ("magenta", "merah"),
+    PAIR_ACCENT: ("biru", "magenta"),
+}
+_ACCENT_PREFS_DARK_BG = {    # latar gelap: hitam/biru/merah/magenta
+    PAIR_OK: ("hijau", "cyan"),
+    PAIR_ERR: ("merah", "magenta", "kuning"),
+    PAIR_WARN: ("kuning", "magenta"),
+    PAIR_ACCENT: ("cyan", "kuning"),
+}
+_LIGHT_BGS = ("putih", "kuning", "cyan", "hijau")
 
 # Nama warna (Indonesia) yang bisa dipilih user buat latar & tulisan lewat
 # menu Pengaturan -- dibatasi ke 8 warna standar terminal biar aman di semua
@@ -79,6 +99,18 @@ def _char_width(ch):
     return 1
 
 
+_VS16 = "\ufe0f"   # "variation selector": ekor tak terlihat di emoji macam ⚠️ / ⏹️
+
+
+def clean_text(text):
+    """
+    Buang variation selector (U+FE0F) dari teks. Terminal beda-beda nanggepinnya
+    (ada yang nganggap emoji jadi 2 kolom, ada yang 1, ada yang malah ngerusak sisa
+    baris), jadi dibuang aja: emoji-nya tetap tampil, versi teks biasa.
+    """
+    return str(text).replace(_VS16, "")
+
+
 def display_width(text):
     """Lebar tampil suatu teks di terminal (kolom), bukan jumlah karakternya."""
     return sum(_char_width(c) for c in text)
@@ -92,6 +124,7 @@ def _pad_display(text, width):
 
 def _truncate_display(text, width):
     """Potong teks dari KANAN sampai muat di `width` kolom tampilan (nggak pernah motong di tengah karakter lebar)."""
+    text = clean_text(text)
     if display_width(text) <= width:
         return text
     out, w = [], 0
@@ -111,6 +144,7 @@ def _fit_display(text, width, keep_suffix=16):
     ' [a1b2c3d4]' sering menyimpan info penting, jadi diusahakan tetap kelihatan),
     dipadding spasi kalau kependekan.
     """
+    text = clean_text(text)
     if display_width(text) <= width:
         return _pad_display(text, width)
     if width <= 1:
@@ -139,7 +173,11 @@ def _wrap_lines(lines, width):
     kasus langka untuk pesan/prompt aplikasi ini)."""
     out = []
     for line in lines:
-        out.extend(textwrap.wrap(line, max(10, width)) or [""])
+        line = clean_text(line)
+        # Pertahankan indentasi awal (mis. "   💡 petunjuk") di baris lanjutan hasil wrap.
+        indent = line[:len(line) - len(line.lstrip(" "))]
+        out.extend(textwrap.wrap(line, max(10, width), subsequent_indent=indent if len(indent) < width // 2 else "")
+                   or [""])
     return out
 
 
@@ -171,6 +209,10 @@ def _apply_colors(stdscr, bg_name, text_name):
         curses.init_pair(PAIR_NORMAL, fg, bg)
         curses.init_pair(PAIR_SELECT, bg, fg)  # dibalik dari NORMAL -- otomatis selalu kontras
         curses.init_pair(PAIR_TITLE, fg, bg)
+        prefs = _ACCENT_PREFS_LIGHT_BG if bg_name in _LIGHT_BGS else _ACCENT_PREFS_DARK_BG
+        for pair, names in prefs.items():
+            color = next((COLOR_NAME_MAP[n] for n in names if COLOR_NAME_MAP[n] != bg), fg)
+            curses.init_pair(pair, color, bg)
         _current_bg, _current_text = bg_name, text_name
     except curses.error:
         return False
@@ -222,6 +264,25 @@ def _select_attr():
 
 def _title_attr():
     return curses.color_pair(PAIR_TITLE) | curses.A_BOLD if _color_ready else curses.A_BOLD
+
+
+def accent_attr(kind):
+    """
+    Atribut warna aksen: kind = "ok" | "err" | "warn" | "accent".
+    Terminal tanpa warna: tebal/redup sebagai gantinya, nggak pernah error.
+    """
+    if not _color_ready:
+        return {"ok": curses.A_BOLD, "err": curses.A_BOLD, "warn": curses.A_NORMAL}.get(kind, curses.A_NORMAL)
+    pair = {"ok": PAIR_OK, "err": PAIR_ERR, "warn": PAIR_WARN}.get(kind, PAIR_ACCENT)
+    return curses.color_pair(pair) | (curses.A_BOLD if kind in ("ok", "err") else 0)
+
+
+def normal_attr():
+    return _normal_attr()
+
+
+def title_attr():
+    return _title_attr()
 
 
 def _safe_curs_set(visibility):

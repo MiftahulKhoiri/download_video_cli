@@ -1,9 +1,9 @@
 # src/download_menu.py
 """
-Lapisan menu interaktif -- SEMUA navigasi & input pakai TUI (curses).
-Proses kerja beneran (fetch info, download, progress bar) tetap pakai
-output teks biasa yang sudah teruji, dijalankan lewat tui.suspend() biar
-curses nggak tabrakan sama print()/spinner yang ada.
+Lapisan menu interaktif -- SEMUANYA pakai TUI (curses): navigasi, input,
+DAN proses kerjanya (cek URL/playlist, ambil info, download + progress).
+Proses yang lama dijalankan di thread terpisah lewat src/tui_progress.py,
+sementara thread utama menggambar layar progress-nya.
 """
 from urllib.parse import urlparse, parse_qs
 
@@ -16,7 +16,9 @@ from src.download_core import (
 from src.logger import get_logger
 from src.utils import strip_ansi
 from src.errors import explain_error
+from src.reporter import report
 from src import tui
+from src.tui_progress import run_busy, run_download_screen
 
 log = get_logger()
 
@@ -159,23 +161,13 @@ def _error_lines(e, config):
     return [f"❌ {lines[0]}"] + ([""] + lines[1:] if len(lines) > 1 else [])
 
 
-def _jalankan(stdscr, fn):
+def _jalankan(stdscr, fn, heading="Download"):
     """
-    Jalankan proses download (fn) di mode teks biasa. Error atau Ctrl+C di tengah jalan
-    nggak boleh menutup seluruh app -- cukup tampilkan pesannya lalu balik ke menu.
+    Jalankan proses download (fn) dengan layar progress TUI. Error atau pembatalan
+    di tengah jalan nggak pernah menutup seluruh app -- ditampilkan di layar progress,
+    lalu balik ke menu setelah user menekan Enter.
     """
-    with tui.suspend(stdscr):
-        try:
-            fn()
-        except KeyboardInterrupt:
-            print("\n⏹️  Dibatalkan, kembali ke menu.")
-        except Exception as e:
-            log.exception("Error saat download dari menu")
-            print(f"\n❌ Gagal: {explain_error(e, cookies_used=_cookies_used())}")
-        try:
-            input("\nTekan Enter untuk lanjut...")
-        except (KeyboardInterrupt, EOFError):
-            pass
+    run_download_screen(stdscr, heading, fn)
 
 
 def _is_video_in_playlist(url):
@@ -195,34 +187,48 @@ def _is_video_in_playlist(url):
 
 def _expand_urls_tui(stdscr, raw_urls, config, label, unit="item"):
     """
-    Expand playlist di mode teks (curses disuspend, karena expand_playlist punya spinner sendiri).
+    Expand playlist (kotak spinner TUI selama proses; URL yang gagal dirangkum di kotak pesan).
     URL video yang nyempil di playlist ditanyakan dulu: unduh semua, atau video itu saja.
     Return list URL, atau None kalau gagal/kosong/dibatalkan (pesan sudah ditampilkan ke user).
     """
     retries = config.get("retry_count", 1)
-    try:
-        with tui.suspend(stdscr):
-            print(f"===== {label} =====")
-            pairs = []
-            for u in raw_urls:
-                try:
+    cookies_used = _cookies_used(config)
+
+    def _periksa():
+        pairs, failed = [], 0
+        for i, u in enumerate(raw_urls, 1):
+            try:
+                with report().status(f"Memeriksa URL {i}/{len(raw_urls)}: {u}"):
                     expanded = expand_playlist(u, cookies_file=config.get("cookies_file"), retries=retries)
-                except KeyboardInterrupt:
-                    raise
-                except Exception as e:
-                    # Satu URL bermasalah (video dihapus/private/typo) nggak boleh
-                    # menggagalkan URL LAIN yang udah ditulis user di layar ini.
-                    print(f"❌ Gagal memeriksa {u}:\n   {explain_error(e, cookies_used=_cookies_used(config))}")
-                    log.warning(f"Gagal expand URL {u}: {strip_ansi(e)}")
-                    continue
-                if len(expanded) > 1:
-                    print(f"📋 Playlist terdeteksi ({u}): {len(expanded)} {unit} ditemukan.")
-                pairs.append((u, expanded))
+            except Exception as e:
+                # Satu URL bermasalah (video dihapus/private/typo) nggak boleh
+                # menggagalkan URL LAIN yang udah ditulis user di layar ini.
+                failed += 1
+                report().message(f"❌ Gagal memeriksa {u}:\n   {explain_error(e, cookies_used=cookies_used)}")
+                log.warning(f"Gagal expand URL {u}: {strip_ansi(e)}")
+                continue
+            if len(expanded) > 1:
+                report().message(f"📋 Playlist terdeteksi ({u}): {len(expanded)} {unit} ditemukan.")
+            pairs.append((u, expanded))
+        return pairs, failed
+
+    try:
+        (pairs, failed), messages = run_busy(stdscr, label, _periksa, "Memeriksa URL / playlist...")
     except KeyboardInterrupt:
         return None
     except Exception as e:
         tui.message_box(stdscr, "Error", _error_lines(e, config))
         return None
+
+    if failed:
+        lines = []
+        for m in messages:
+            lines.extend(m.split("\n"))
+        if not pairs:
+            # Semua gagal: cukup SATU kotak (alasan + kesimpulan), bukan dua kotak berturut-turut.
+            tui.message_box(stdscr, label, lines + ["", f"Tidak ada {unit} yang bisa diunduh."])
+            return None
+        tui.message_box(stdscr, "Ada URL yang Gagal Diperiksa", lines + ["", f"{len(pairs)} URL lain tetap dilanjutkan."])
 
     urls = []
     for u, expanded in pairs:
@@ -254,12 +260,14 @@ def _resolve_urls_and_info(stdscr, raw_urls, config, label):
     if urls is None:
         return None
 
+    def _ambil_info():
+        info = get_video_info(urls[0], cookies_file=config.get("cookies_file"),
+                              retries=config.get("retry_count", 1))
+        return info, get_available_resolutions(info)
+
     try:
-        with tui.suspend(stdscr):
-            info = get_video_info(urls[0], cookies_file=config.get("cookies_file"),
-                                  retries=config.get("retry_count", 1))
-            formats = get_available_resolutions(info)
-            return urls, info, formats
+        (info, formats), _ = run_busy(stdscr, label, _ambil_info, "Mengambil info video...")
+        return urls, info, formats
     except KeyboardInterrupt:
         return None
     except Exception as e:
@@ -284,13 +292,14 @@ def menu_download_1(stdscr):
 
     if len(urls) > 1:
         _jalankan(stdscr, lambda: download_many(
-            urls, target_height=height, resolution_label=label, first_info=info, config=config))
+            urls, target_height=height, resolution_label=label, first_info=info, config=config),
+            f"Download Playlist ({len(urls)} video, {label})")
     else:
         section_range = _pilih_rentang_waktu_tui(stdscr)
         _jalankan(stdscr, lambda: download_single(
             urls[0], target_height=height, resolution_label=label, info=info,
             config=config, section_range=section_range,
-        ))
+        ), f"Download Video ({label})")
 
 
 def menu_download_banyak(stdscr):
@@ -309,7 +318,8 @@ def menu_download_banyak(stdscr):
         return
 
     _jalankan(stdscr, lambda: download_many(
-        urls, target_height=height, resolution_label=label, first_info=info, config=config))
+        urls, target_height=height, resolution_label=label, first_info=info, config=config),
+        f"Download {len(urls)} Video ({label})")
 
 
 def menu_download_mp3_1(stdscr):
@@ -338,14 +348,16 @@ def menu_download_mp3_1(stdscr):
     if quality:
         cfg_override["mp3_quality"] = quality
 
+    fmt_label = f"{audio_format} {quality}kbps" if quality else audio_format
     if len(urls) > 1:
-        _jalankan(stdscr, lambda: download_audio_many(urls, config=cfg_override))
+        _jalankan(stdscr, lambda: download_audio_many(urls, config=cfg_override),
+                  f"Download Audio Playlist ({len(urls)} item, {fmt_label})")
     else:
         section_range = _pilih_rentang_waktu_tui(stdscr)
         _jalankan(stdscr, lambda: download_audio_single(
             urls[0], audio_format=audio_format, quality=quality,
             config=config, section_range=section_range,
-        ))
+        ), f"Download Audio ({fmt_label})")
 
 
 def menu_download_mp3_banyak(stdscr):
@@ -374,7 +386,9 @@ def menu_download_mp3_banyak(stdscr):
     if quality:
         cfg_override["mp3_quality"] = quality
 
-    _jalankan(stdscr, lambda: download_audio_many(urls, config=cfg_override))
+    fmt_label = f"{audio_format} {quality}kbps" if quality else audio_format
+    _jalankan(stdscr, lambda: download_audio_many(urls, config=cfg_override),
+              f"Download {len(urls)} Audio ({fmt_label})")
 
 
 def run_download_menu(stdscr):

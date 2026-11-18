@@ -70,7 +70,7 @@ _RULES = [
         False,
     ),
     (
-        r"Video unavailable|This video has been removed|has been terminated|This video is no longer available"
+        r"Video unavailable|video is unavailable|This video has been removed|has been terminated|This video is no longer available"
         r"|HTTP Error 404|404: Not Found",
         "Videonya nggak ditemukan: mungkin sudah dihapus, link-nya salah, atau dibatasi pemiliknya.",
         None,
