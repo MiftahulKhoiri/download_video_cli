@@ -12,6 +12,9 @@ def get_logger():
     Logger sederhana ke file download/app.log (diputar otomatis: maks ~1 MB x 3 file).
     Nggak nyetak apa pun ke layar (biar nggak dobel sama pesan yang udah ditampilkan) --
     cuma berguna buat lacak riwayat/error kalau dijalanin unattended (cron/automation).
+
+    Set env DVC_NO_LOG=1 buat mematikan log ke file (dipakai unit test, biar
+    nggak ngotorin download/app.log yang asli).
     """
     global _logger
     if _logger is not None:
@@ -21,7 +24,11 @@ def get_logger():
     logger.setLevel(logging.INFO)
     logger.propagate = False
 
-    if not logger.handlers:
+    if os.environ.get("DVC_NO_LOG") == "1":
+        for h in list(logger.handlers):
+            logger.removeHandler(h)
+        logger.addHandler(logging.NullHandler())
+    elif not logger.handlers:
         try:
             os.makedirs(DOWNLOAD_DIR, exist_ok=True)
             handler = RotatingFileHandler(LOG_FILE, maxBytes=1_000_000, backupCount=3, encoding="utf-8")

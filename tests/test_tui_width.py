@@ -11,6 +11,8 @@ import unittest
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
+os.environ["DVC_NO_LOG"] = "1"   # jangan sampai tes nulis ke download/app.log asli
+
 from src import tui
 
 

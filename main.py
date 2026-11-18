@@ -210,7 +210,12 @@ def main():
             clear_screen()
             show_logo()
             startup_check_and_notify()
-            input("Tekan Enter untuk masuk ke menu...")
+            try:
+                input("Tekan Enter untuk masuk ke menu...")
+            except EOFError:
+                # stdin ditutup (Ctrl+D, atau dijalankan tanpa terminal) -- keluar rapi tanpa traceback.
+                print("\n👋 Input ditutup, sampai jumpa!")
+                return EXIT_OK
             curses.wrapper(_interactive_app)
             clear_screen()
             print("Sampai jumpa!")

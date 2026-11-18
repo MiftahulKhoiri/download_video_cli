@@ -14,9 +14,18 @@ import unittest
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from src import paths, manager
+# Wajib SEBELUM import src.*: logger dibuat saat modul diimpor, jangan sampai
+# tes nulis ke download/app.log yang asli.
+os.environ["DVC_NO_LOG"] = "1"
+
+from src import paths, manager, loading
 from src.utils import parse_rate_limit, strip_ansi
 from src.config import DEFAULT_CONFIG, _validate_config, MAX_PARALLEL_WORKERS
+
+
+def _write_bytes(path, data):
+    with open(path, "wb") as f:
+        f.write(data)
 
 
 class TestUtils(unittest.TestCase):
@@ -90,7 +99,7 @@ class TestHistoryAndDuplicates(unittest.TestCase):
 
     def test_save_and_detect_duplicate(self):
         fp = os.path.join(self._tmp, "Judul Video.mp4")
-        open(fp, "wb").write(b"isi")
+        _write_bytes(fp, b"isi")
         manager.save_file_record("Judul Video", fp, "http://u", "720p", video_id="abc")
         already, item = manager.is_already_downloaded("Judul Video", "720p", video_id="abc")
         self.assertTrue(already)
@@ -98,7 +107,7 @@ class TestHistoryAndDuplicates(unittest.TestCase):
 
     def test_redownload_allowed_if_file_missing(self):
         fp = os.path.join(self._tmp, "Video Hilang.mp4")
-        open(fp, "wb").write(b"isi")
+        _write_bytes(fp, b"isi")
         manager.save_file_record("Video Hilang", fp, "http://u", "720p", video_id="xyz")
         os.remove(fp)  # user hapus manual
         already, item = manager.is_already_downloaded("Video Hilang", "720p", video_id="xyz")
@@ -107,12 +116,35 @@ class TestHistoryAndDuplicates(unittest.TestCase):
 
     def test_corrupt_history_backed_up(self):
         manager.ensure_download_folder()
-        open(paths.HISTORY_FILE, "w").write('{"bukan": "list"')  # JSON rusak
+        with open(paths.HISTORY_FILE, "w", encoding="utf-8") as f:
+            f.write('{"bukan": "list"')  # JSON rusak
         with contextlib.redirect_stdout(io.StringIO()):
             history = manager.load_history()
         self.assertEqual(history, [])
         backups = [f for f in os.listdir(self._tmp) if ".corrupt-" in f]
         self.assertEqual(len(backups), 1)
+
+
+class TestSpinnerNonTTY(unittest.TestCase):
+    def test_message_printed_once_without_animation(self):
+        buf = io.StringIO()   # StringIO.isatty() == False, sama kayak pipe/cron
+        with contextlib.redirect_stdout(buf):
+            with loading.Spinner("Memuat data..."):
+                import time
+                time.sleep(0.35)   # cukup buat ~3 frame kalau animasi masih jalan
+        out = buf.getvalue()
+        self.assertEqual(out, "Memuat data...\n")
+        self.assertNotIn("\r", out)
+
+
+class TestLoggerDisabledInTests(unittest.TestCase):
+    def test_no_file_handler(self):
+        # Cek spesifik ke file log ASLI: pytest sendiri suka nempelin handler
+        # internalnya (mis. _FileHandler ke /dev/null), itu bukan urusan kita.
+        from src.logger import get_logger
+        targets = [os.path.abspath(getattr(h, "baseFilename", ""))
+                   for h in get_logger().handlers if getattr(h, "baseFilename", None)]
+        self.assertNotIn(os.path.abspath(paths.LOG_FILE), targets)
 
 
 if __name__ == "__main__":

@@ -139,6 +139,14 @@ def postprocessor_hook(d):
         print(finished_msg)
 
 
+def _stdout_is_tty():
+    """True kalau stdout terminal beneran (bukan pipe/file/cron)."""
+    try:
+        return sys.stdout.isatty()
+    except (AttributeError, ValueError):
+        return False
+
+
 class Spinner:
     """
     Spinner kecil biar user tau proses masih jalan (bukan macet) pas nunggu
@@ -147,6 +155,10 @@ class Spinner:
 
         with Spinner("Mengambil info video..."):
             info = get_video_info(url)
+
+    Kalau stdout BUKAN terminal (dialihkan ke file/pipe, dijalankan dari cron),
+    animasi dimatikan: pesan cuma dicetak sekali, biar log nggak kebanjiran
+    ratusan baris frame spinner.
     """
     _FRAMES = "⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏"
 
@@ -154,6 +166,7 @@ class Spinner:
         self.message = message
         self._stop_event = threading.Event()
         self._thread = None
+        self._animate = _stdout_is_tty()
 
     def _spin(self):
         for frame in itertools.cycle(self._FRAMES):
@@ -164,12 +177,17 @@ class Spinner:
             time.sleep(0.1)
 
     def __enter__(self):
+        if not self._animate:
+            print(self.message, flush=True)
+            return self
         self._stop_event.clear()
         self._thread = threading.Thread(target=self._spin, daemon=True)
         self._thread.start()
         return self
 
     def __exit__(self, exc_type, exc_val, exc_tb):
+        if not self._animate:
+            return False
         self._stop_event.set()
         if self._thread:
             self._thread.join()
