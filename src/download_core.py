@@ -21,7 +21,8 @@ from src.loading import (
 from src.config import load_config
 from src import notify
 from src.logger import get_logger
-from src.utils import parse_rate_limit as _parse_rate_limit, strip_ansi
+from src.utils import parse_rate_limit as _parse_rate_limit
+from src.errors import clean_message, explain_error, is_retryable
 
 log = get_logger()
 
@@ -203,12 +204,14 @@ def _run_download(ydl_opts, url, expected_ext, retries, printer=print):
             raise
         except Exception as e:
             last_exc = e
-            msg = strip_ansi(e)
+            msg = clean_message(e)
             log.warning(f"Percobaan {attempt}/{retries} gagal untuk {url}: {msg}")
+            if not is_retryable(e):
+                break   # error permanen: retry cuma buang waktu
             if attempt < retries:
                 printer(f"⚠️  Percobaan {attempt}/{retries} gagal ({msg}). Mencoba lagi...")
                 reset_progress()
-    log.error(f"Gagal unduh {url} setelah {retries} percobaan: {strip_ansi(last_exc)}")
+    log.error(f"Gagal unduh {url} setelah {attempt} percobaan: {clean_message(last_exc)}")
     raise last_exc
 
 
@@ -433,7 +436,7 @@ def _run_batch(url_list, single_fn, config, first_info=None, **single_kwargs):
             except KeyboardInterrupt:
                 raise
             except Exception as e:
-                print(f"❌ Gagal mengunduh {url}: {strip_ansi(e)}")
+                print(f"❌ Gagal mengunduh {url}: {explain_error(e, cookies_used=bool(config.get('cookies_file')))}")
                 hasil["gagal"] += 1
     else:
         # Batas kecepatan di yt-dlp berlaku PER download -- dibagi rata biar total tetap sesuai pengaturan.
@@ -462,7 +465,8 @@ def _run_batch(url_list, single_fn, config, first_info=None, **single_kwargs):
                     safe_print(f"[{i}/{len(url_list)}] Selesai: {url}")
                 except Exception as e:
                     hasil["gagal"] += 1
-                    safe_print(f"[{i}/{len(url_list)}] ❌ Gagal: {url} ({strip_ansi(e)})")
+                    safe_print(f"[{i}/{len(url_list)}] ❌ Gagal: {url}\n   "
+                               f"{explain_error(e, cookies_used=bool(config.get('cookies_file')))}")
         except KeyboardInterrupt:
             # Antrean yang belum jalan dibatalkan, yang lagi jalan disuruh berhenti (lewat hook progress).
             # Tanpa ini, 'with ThreadPoolExecutor' baru lepas setelah SEMUA antrean selesai diunduh.

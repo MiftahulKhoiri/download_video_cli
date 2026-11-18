@@ -6,19 +6,41 @@ import subprocess
 
 import yt_dlp
 
+from src.errors import clean_message, is_retryable
 from src.loading import Spinner, safe_print
-from src.utils import strip_ansi
+
+
+class _SilentYdlLogger:
+    """
+    Logger buat yt-dlp yang membuang semua output-nya. Tanpa ini, yt-dlp tetap
+    nyetak 'ERROR: ...' mentah ke layar walau quiet=True -- padahal error yang
+    sama juga dilempar sebagai exception dan ditampilkan app dengan pesan yang
+    lebih jelas (src/errors.py), jadi user lihat error dobel.
+    """
+    def debug(self, msg):
+        pass
+
+    def info(self, msg):
+        pass
+
+    def warning(self, msg):
+        pass
+
+    def error(self, msg):
+        pass
 
 
 def base_ydl_opts():
     """
-    Opsi dasar yang sama buat SEMUA panggilan yt-dlp di app ini: senyap, dan tanpa
-    kode warna ANSI (kode warna di pesan error bikin kotak curses & app.log berantakan).
+    Opsi dasar yang sama buat SEMUA panggilan yt-dlp di app ini: senyap, tanpa
+    kode warna ANSI (kode warna di pesan error bikin kotak curses & app.log berantakan),
+    dan error-nya nggak dicetak mentah oleh yt-dlp (ditampilkan sendiri oleh app).
     """
     return {
         "quiet": True,
         "no_warnings": True,
         "color": {"stdout": "never", "stderr": "never"},
+        "logger": _SilentYdlLogger(),
     }
 
 
@@ -65,8 +87,10 @@ def _fetch_info_with_retry(ydl_opts, url, spinner_message, retries=1, quiet=Fals
             raise
         except Exception as e:
             last_exc = e
+            if not is_retryable(e):
+                break   # error permanen (tweet butuh login, video dihapus, URL salah): ulang = buang waktu
             if attempt < retries:
-                safe_print(f"⚠️  Percobaan {attempt}/{retries} gagal ambil info ({strip_ansi(e)}). Mencoba lagi...")
+                safe_print(f"⚠️  Percobaan {attempt}/{retries} gagal ambil info ({clean_message(e)}). Mencoba lagi...")
     raise last_exc
 
 

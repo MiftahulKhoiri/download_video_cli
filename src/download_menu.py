@@ -15,6 +15,7 @@ from src.download_core import (
 )
 from src.logger import get_logger
 from src.utils import strip_ansi
+from src.errors import explain_error
 from src import tui
 
 log = get_logger()
@@ -143,6 +144,21 @@ def _kumpulkan_urls_tui(stdscr):
     return urls
 
 
+def _cookies_used(config=None):
+    """True kalau file cookies diset (buat milih petunjuk error yang pas)."""
+    try:
+        cfg = config if config is not None else load_config()
+        return bool(cfg.get("cookies_file"))
+    except Exception:
+        return False
+
+
+def _error_lines(e, config):
+    """Pesan error + petunjuk sebagai list baris, buat tui.message_box."""
+    lines = explain_error(e, cookies_used=_cookies_used(config), indent="").split("\n")
+    return [f"❌ {lines[0]}"] + ([""] + lines[1:] if len(lines) > 1 else [])
+
+
 def _jalankan(stdscr, fn):
     """
     Jalankan proses download (fn) di mode teks biasa. Error atau Ctrl+C di tengah jalan
@@ -155,7 +171,7 @@ def _jalankan(stdscr, fn):
             print("\n⏹️  Dibatalkan, kembali ke menu.")
         except Exception as e:
             log.exception("Error saat download dari menu")
-            print(f"\n❌ Gagal: {strip_ansi(e)}")
+            print(f"\n❌ Gagal: {explain_error(e, cookies_used=_cookies_used())}")
         try:
             input("\nTekan Enter untuk lanjut...")
         except (KeyboardInterrupt, EOFError):
@@ -196,7 +212,7 @@ def _expand_urls_tui(stdscr, raw_urls, config, label, unit="item"):
                 except Exception as e:
                     # Satu URL bermasalah (video dihapus/private/typo) nggak boleh
                     # menggagalkan URL LAIN yang udah ditulis user di layar ini.
-                    print(f"❌ Gagal memeriksa {u}: {strip_ansi(e)}")
+                    print(f"❌ Gagal memeriksa {u}:\n   {explain_error(e, cookies_used=_cookies_used(config))}")
                     log.warning(f"Gagal expand URL {u}: {strip_ansi(e)}")
                     continue
                 if len(expanded) > 1:
@@ -205,7 +221,7 @@ def _expand_urls_tui(stdscr, raw_urls, config, label, unit="item"):
     except KeyboardInterrupt:
         return None
     except Exception as e:
-        tui.message_box(stdscr, "Error", f"❌ Terjadi kesalahan: {strip_ansi(e)}")
+        tui.message_box(stdscr, "Error", _error_lines(e, config))
         return None
 
     urls = []
@@ -247,7 +263,7 @@ def _resolve_urls_and_info(stdscr, raw_urls, config, label):
     except KeyboardInterrupt:
         return None
     except Exception as e:
-        tui.message_box(stdscr, "Error", f"❌ Terjadi kesalahan: {strip_ansi(e)}")
+        tui.message_box(stdscr, "Error", _error_lines(e, config))
         return None
 
 

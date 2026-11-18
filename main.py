@@ -11,7 +11,8 @@ from src.logo import show_logo, show_intro
 from src.config import load_config, _settings_loop, check_config_integrity, MAX_PARALLEL_WORKERS, MAX_RETRY_COUNT
 from src.lock import AppLock
 from src.updater import startup_check_and_notify
-from src.utils import parse_rate_limit, strip_ansi
+from src.utils import parse_rate_limit
+from src.errors import explain_error
 from src import tui
 
 APP_VERSION = "1.1.0"
@@ -122,7 +123,7 @@ def run_cli(args):
             raise
         except Exception as e:
             # Satu URL bermasalah nggak boleh menggagalkan URL lain.
-            print(f"❌ Gagal memeriksa {u}: {strip_ansi(e)}")
+            print(f"❌ Gagal memeriksa {u}:\n   {explain_error(e, cookies_used=bool(config.get('cookies_file')))}")
             problems += 1
             continue
         if len(expanded) > 1:

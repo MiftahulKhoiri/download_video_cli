@@ -48,6 +48,7 @@ Script Python3 untuk mengunduh video dan audio dari **YouTube** dan **X (Twitter
 - Tema warna menu bisa disesuaikan (latar & tulisan, 8 pilihan warna terminal standar)
 - **Mode CLI non-interaktif** (`--url ...` / `--url-file ...`) buat dipanggil dari script/automation
 - Dukungan file cookies buat konten yang butuh login
+- **Pesan error yang jelas** — error yt-dlp yang membingungkan (mis. `No video could be found in this tweet`) diberi baris `💡` berisi penyebab & cara mengatasinya, dan error permanen (butuh login, video dihapus, URL salah) nggak di-retry percuma
 - Folder `download/` dibuat otomatis jika belum ada
 
 ## 📁 Struktur Proyek
@@ -75,6 +76,7 @@ project/
 │   ├── lock.py               # Cegah proses ganda jalan bersamaan
 │   ├── notify.py             # Notifikasi Android + wake-lock via Termux:API
 │   ├── logo.py                 # ASCII logo & animasi intro
+│   ├── errors.py             # Terjemahkan error yt-dlp jadi pesan + petunjuk yang jelas
 │   ├── paths.py              # Lokasi file internal, dihitung dari folder proyek
 │   └── utils.py              # Fungsi kecil bersama (parse rate limit, buang kode ANSI, backup file rusak)
 └── download/                    # Folder INTERNAL app, dibuat otomatis
@@ -356,7 +358,8 @@ python3 -m unittest discover -s tests -v
 | `ModuleNotFoundError: No module named 'src'` | Jalankan `python3 main.py` dari folder root, bukan dari dalam `src/` |
 | `HTTP Error 403: Forbidden` pas download | yt-dlp ketinggalan versi — update lewat menu Pengaturan > 16, atau manual: `pip install -U yt-dlp` |
 | Error saat merge video+audio / convert audio / embed thumbnail | Pastikan `ffmpeg` sudah terinstall dan ada di PATH |
-| Video tidak bisa diunduh | Pastikan link bersifat publik, atau pakai file cookies (Pengaturan > 8) buat konten privat |
+| Video tidak bisa diunduh | Pastikan link bersifat publik, atau pakai file cookies (Pengaturan > 8) buat konten privat. Baca juga baris `💡` di bawah pesan error — isinya penyebab & solusi spesifik |
+| X/Twitter: `No video could be found in this tweet` | Tweet-nya disembunyikan dari pengguna yang belum login (biasanya konten sensitif/dibatasi umur, akun diproteksi, atau tweet dihapus). Ekspor cookies dari browser yang sudah login ke x.com (format Netscape) lalu pakai `--cookies cookies.txt` / Pengaturan > 8. Kalau masih gagal: aktifkan "Tampilkan media sensitif" di setelan akun X, atau ekspor ulang cookies |
 | Folder penyimpanan custom nggak kepake, balik ke `download/` | Folder itu gagal dibuat/ditulisi (path salah, storage belum ke-mount, izin ditolak) — cek pesan peringatannya, perbaiki path/izin lewat Pengaturan > 10 |
 | Notifikasi/wake-lock Termux tidak berfungsi | Pastikan `pkg install termux-api` sudah dijalankan DAN app Termux:API sudah diinstall dari F-Droid/Play Store |
 | File tidak muncul di `~/storage/downloads` | Jalankan `termux-setup-storage` dulu, izinkan akses storage, baru aktifkan opsi di Pengaturan > 12 |
